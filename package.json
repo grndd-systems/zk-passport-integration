@@ -1,0 +1,29 @@
+{
+  "name": "rarimo-test",
+  "version": "0.1.0",
+  "scripts": {
+    "generate-passport": "node dist/index.js generate-passport",
+    "generate-proof": "node dist/index.js generate-proof",
+    "update-aa-sig": "node dist/passport/generate-aa-signature.js",
+    "setup": "node dist/index.js setup",
+    "register-cert-rsa": "node dist/index.js register-certificate-rsa",
+    "register-cert-rsapss": "node dist/index.js register-certificate-rsapss",
+    "register-passport": "node dist/index.js register-passport"
+  },
+  "dependencies": {
+    "@aztec/bb.js": "^0.66.0",
+    "@noir-lang/noir_js": "^1.0.0-beta.1",
+    "asn1-ts": "^11.0.1",
+    "axios": "^1.4.0",
+    "dotenv": "^16.0.3",
+    "ethers": "^6.9.0",
+    "keccak": "^3.0.2",
+    "node-forge": "^1.3.1",
+    "passport-zk-circuits-noir-js": "^1.0.0",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node-forge": "^1.3.14",
+    "prettier": "^3.6.2"
+  }
+}

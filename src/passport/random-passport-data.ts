@@ -11,6 +11,7 @@ export interface PassportPersonalData {
   sex: string;
   expiryDate: string;
   personalNumber: string;
+  issuingCountry: string;
 }
 
 // Famous Romans from Republic and Empire
@@ -71,13 +72,15 @@ export function generateRandomPassportData(): PassportPersonalData {
       .toString()
       .padStart(8, '0');
 
+  const issuingCountry = "ITA";
   return {
     ...randomName,
     passportNumber,
-    nationality: 'ROM', // Roman Empire nationality code
+    nationality: 'ITA', // Italy nationality code
     dateOfBirth,
     sex,
     expiryDate: '351231', // Expires at end of 2035
     personalNumber,
+    issuingCountry
   };
 }

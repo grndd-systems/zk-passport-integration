@@ -174,3 +174,123 @@ export async function registerPassportViaNoir(
 
   return tx;
 }
+
+/**
+ * Revoke passport identity
+ *
+ * Revokes an identity by proving ownership of the passport's private key.
+ * This allows users to invalidate their identity on-chain.
+ *
+ * @param identityKey - The identity key to revoke (hashed identity key from proof)
+ * @param passport - Passport data structure containing signature and public key
+ * @returns Transaction object
+ */
+export async function revokePassport(
+  identityKey: BigNumberish,
+  passport: PassportStruct,
+) {
+  const { wallet } = getProviderAndWallet();
+  const reg = getRegistration2Contract(wallet);
+  const sk = getStateKeeperContract(wallet);
+
+  const tx = await reg.revoke(
+    identityKey,
+    passport,
+    { gasLimit: 20000000 } as Overrides,
+  );
+  console.log('Sent revoke tx hash:', tx.hash);
+
+  const receipt = await tx.wait();
+  console.log('Confirmed revoke');
+
+  // Parse events from receipt
+  if (receipt) {
+    for (const log of receipt.logs) {
+      try {
+        const parsed = sk.interface.parseLog({
+          topics: [...log.topics],
+          data: log.data,
+        });
+        if (parsed && parsed.name === 'BondRevoked') {
+          const identityKey = parsed.args.identityKey;
+
+          console.log('\n=== StateKeeper.BondRevoked Event ===');
+          console.log('identityKey:', identityKey);
+        }
+      } catch (e) {
+        // Skip logs that don't match
+      }
+    }
+  }
+
+  return tx;
+}
+
+/**
+ * Reissue identity via Noir proof
+ *
+ * Reissues an identity with a new identityKey while using the same passport.
+ * This allows rotating the BJJ identity key pair without changing the passport.
+ * Common use cases:
+ * - Identity key rotation for security
+ * - Switching to new sk_identity while keeping same passport
+ * - Moving identity to new device/wallet
+ *
+ * @param certificatesRoot - Root of certificates SMT (for frontrunning protection)
+ * @param identityKey - The NEW identity key (from new sk_identity)
+ * @param dgCommit - Commitment to DG1 data (with new sk_identity)
+ * @param passport - Passport data structure (can be same passport)
+ * @param zkPoints - Noir proof (bytes)
+ * @returns Transaction object
+ */
+export async function reissueIdentityViaNoir(
+  certificatesRoot: BytesLike,
+  identityKey: BigNumberish,
+  dgCommit: BigNumberish,
+  passport: PassportStruct,
+  zkPoints: BytesLike,
+) {
+  const { wallet } = getProviderAndWallet();
+  const reg = getRegistration2Contract(wallet);
+  const sk = getStateKeeperContract(wallet);
+
+  const tx = await reg.reissueIdentityViaNoir(
+    certificatesRoot,
+    identityKey,
+    dgCommit,
+    passport,
+    zkPoints,
+    { gasLimit: 20000000 } as Overrides,
+  );
+  console.log('Sent reissueIdentityViaNoir tx hash:', tx.hash);
+
+  const receipt = await tx.wait();
+  console.log('Confirmed reissueIdentityViaNoir');
+
+  // Parse events from receipt
+  if (receipt) {
+    for (const log of receipt.logs) {
+      try {
+        const parsed = sk.interface.parseLog({
+          topics: [...log.topics],
+          data: log.data,
+        });
+        if (parsed && parsed.name === 'BondReissued') {
+          const passportKey = parsed.args.passportKey;
+          const identityKey = parsed.args.identityKey;
+
+          console.log('\n=== StateKeeper.BondReissued Event ===');
+          console.log('passportKey:', passportKey);
+          console.log('identityKey:', identityKey);
+
+          // Call getPassportInfo
+          await getPassportInfo(passportKey);
+        }
+      } catch (e) {
+        // Skip logs that don't match
+      }
+    }
+  }
+
+  return tx;
+}

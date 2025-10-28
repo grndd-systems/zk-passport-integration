@@ -129,11 +129,11 @@ interface PassportGenerationOptions extends PassportData {
 function generateDG1(passportData: PassportData): DG1Data {
   const {
     documentType = 'P',
-    issuingCountry = 'UTO',
+    issuingCountry = 'ITA',
     surname = 'ERIKSSON',
     givenNames = 'ANNA MARIA',
     passportNumber = 'L898902C3',
-    nationality = 'UTO',
+    nationality = 'ITA',
     dateOfBirth = '740812', // YYMMDD
     sex = 'F',
     expiryDate = '120415', // YYMMDD
@@ -189,14 +189,33 @@ function generateDG1(passportData: PassportData): DG1Data {
   const personalCheck = calculateCheckDigit(personalNumber);
 
   // MRZ Line 1: Document type, issuing country, surname, given names
-  const line1 =
-    `${documentType}<${issuingCountry}${surname}<<${givenNames.replace(/ /g, '<')}`.padEnd(44, '<');
+  // Format: P<ITASURNAME<<GIVENNAMES (must be exactly 44 characters)
+  // Available space for names: 44 - 5 (P<ITA) = 39 characters
+  const maxNameLength = 39;
+  const givenNamesFormatted = givenNames.replace(/ /g, '<');
+  let namesPart = `${surname}<<${givenNamesFormatted}`;
+
+  // Truncate if too long (prioritize surname, then given names)
+  if (namesPart.length > maxNameLength) {
+    // Try to fit as much as possible, truncate given names first
+    const surnameWithSeparator = `${surname}<<`;
+    if (surnameWithSeparator.length >= maxNameLength) {
+      // Even surname is too long, truncate it
+      namesPart = surname.substring(0, maxNameLength - 2) + '<<';
+    } else {
+      // Truncate given names to fit
+      const remainingSpace = maxNameLength - surnameWithSeparator.length;
+      namesPart = surnameWithSeparator + givenNamesFormatted.substring(0, remainingSpace);
+    }
+  }
+
+  const line1 = `${documentType}<${issuingCountry}${namesPart}`.padEnd(44, '<');
 
   // MRZ Line 2: Passport number, nationality, DOB, sex, expiry, personal number
-  // Personal number field must be exactly 14 characters (pad with '<')
-  const personalNumberPadded = (personalNumber + personalCheck).padEnd(15, '<');
+  // Personal number field must be exactly 14 characters (pad with '<'), plus 1 check digit = 15 total
+  const personalNumberPadded = personalNumber.padEnd(14, '<');
 
-  const compositeData = `${passportNumber}${passportCheck}${nationality}${dateOfBirth}${dobCheck}${sex}${expiryDate}${expiryCheck}${personalNumberPadded}`;
+  const compositeData = `${passportNumber}${passportCheck}${nationality}${dateOfBirth}${dobCheck}${sex}${expiryDate}${expiryCheck}${personalNumberPadded}${personalCheck}`;
   const compositeCheck = calculateCheckDigit(compositeData);
   const line2 = `${compositeData}${compositeCheck}`;
 

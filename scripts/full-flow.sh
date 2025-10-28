@@ -37,7 +37,7 @@ print_step "Generate Biometric Passport Data"
 node dist/index.js generate-passport
 
 print_step "Generate ZK Proof for Passport"
-node dist/index.js generate-proof
+node dist/index.js generate-register-proof
 
 print_step "Update Active Authentication Signature"
 npm run update-aa-sig

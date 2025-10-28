@@ -8,7 +8,8 @@
     "setup": "node dist/index.js setup",
     "register-cert-rsa": "node dist/index.js register-certificate-rsa",
     "register-cert-rsapss": "node dist/index.js register-certificate-rsapss",
-    "register-passport": "node dist/index.js register-passport"
+    "register-passport": "node dist/index.js register-passport",
+    "generate-register-proof": "node dist/index.js generate-register-proof"
   },
   "dependencies": {
     "@aztec/bb.js": "^0.66.0",

@@ -2,7 +2,7 @@ import { setupICAORoot } from './workflows/setup';
 import { registerCert as registerCert } from './workflows/register-certificate';
 import { registerPassport } from './workflows/register-passport';
 import { generateBiometricPassportData } from './passport/biometric-passport-generator';
-import { generateProof } from './workflows/generate-proof';
+import { generateRegisterIdentityProof } from './workflows/generate-register-proof';
 import { updateAASignature } from './passport/generate-aa-signature';
 import { generateRandomPassportData } from './passport/random-passport-data';
 import * as fs from 'fs';
@@ -41,13 +41,13 @@ async function main() {
     fs.writeFileSync(outputPath, JSON.stringify(passportData, null, 2));
 
     console.log(`\n✅ Passport data generated and saved to: ${outputPath}`);
-  } else if (command === 'generate-proof') {
+  } else if (command === 'generate-register-proof') {
     const passportDir = path.join(process.cwd(), 'data', 'out_passport');
     const passportFiles = fs.readdirSync(passportDir);
     const latestFile = passportFiles.sort().reverse()[0];
     const passportPath = path.join(passportDir, latestFile);
 
-    await generateProof(passportPath);
+    await generateRegisterIdentityProof(passportPath);
     console.log('\n✅ Proof generation completed successfully!');
   } else if (command === 'update-aa-sig') {
     await updateAASignature();
@@ -64,7 +64,7 @@ async function main() {
       '  generate-passport           - Generate biometric passport data. Only for a specific circuit',
     );
     console.log(
-      '  generate-proof              - Generate ZK proof for passport. Prover.toml required',
+      '  generate-register-proof     - Generate ZK proof for passport registration',
     );
     console.log(
       '  update-aa-sig               - Update Active Authentication signature for last generated passport',

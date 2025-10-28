@@ -1,12 +1,15 @@
 import { setupICAORoot } from './workflows/setup';
 import { registerCert as registerCert } from './workflows/register-certificate';
 import { registerPassport } from './workflows/register-passport';
+import { revokePassportIdentity } from './workflows/revoke-passport';
+import { reissuePassport } from './workflows/reissue-identity';
 import { generateBiometricPassportData } from './passport/biometric-passport-generator';
 import { generateRegisterIdentityProof } from './workflows/generate-register-proof';
 import { updateAASignature } from './passport/generate-aa-signature';
 import { generateRandomPassportData } from './passport/random-passport-data';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 const command = process.argv[2] || 'help';
 
@@ -47,10 +50,37 @@ async function main() {
     const latestFile = passportFiles.sort().reverse()[0];
     const passportPath = path.join(passportDir, latestFile);
 
+    // Generate BJJ secret key using BJJKeygen binary
+    const dataDir = path.join(process.cwd(), 'data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const skIdentityPath = path.join(dataDir, 'sk_identity');
+    const bjjKeygenPath = path.join(process.cwd(), 'BJJKeygen');
+
+    console.log('\n=== Generating BJJ secret key ===');
+    console.log(`Running: ${bjjKeygenPath} ${skIdentityPath}`);
+
+    try {
+      const output = execSync(`"${bjjKeygenPath}" "${skIdentityPath}"`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      console.log('BJJKeygen output:', output.trim());
+      console.log(`✅ Secret key saved to: ${skIdentityPath}\n`);
+    } catch (error: any) {
+      console.error('❌ Error running BJJKeygen:', error.message);
+      process.exit(1);
+    }
+
     await generateRegisterIdentityProof(passportPath);
     console.log('\n✅ Proof generation completed successfully!');
   } else if (command === 'update-aa-sig') {
     await updateAASignature();
+  } else if (command === 'revoke-passport') {
+    await revokePassportIdentity();
+  } else if (command === 'reissue-identity') {
+    await reissuePassport();
   } else {
     console.log('Usage: npm start [command]');
     console.log('\nCommands:');
@@ -67,7 +97,16 @@ async function main() {
       '  generate-register-proof     - Generate ZK proof for passport registration',
     );
     console.log(
-      '  update-aa-sig               - Update Active Authentication signature for last generated passport',
+      '  update-aa-sig - Update Active Authentication signature for last generated passport',
+    );
+    console.log(
+      '                                       Use --random-challenge to generate signature with random 8-byte challenge',
+    );
+    console.log(
+      '  revoke-passport             - Revoke passport identity using the latest passport data and proof',
+    );
+    console.log(
+      '  reissue-passport            - Reissue identity with new identityKey (BJJ key pair) for same passport',
     );
     process.exit(0);
   }

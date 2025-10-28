@@ -1,6 +1,6 @@
 # Rarimo Passport ZK Verification
 
-A project for generating and verifying biometric passports using zero-knowledge proofs based on Noir circuits and zkSync smart contracts.
+A project for generating and verifying biometric passports using zero-knowledge proofs based on Noir circuits and Rarimo smart contracts.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ A project for generating and verifying biometric passports using zero-knowledge 
 
 1. **ICAO Master Tree (Poseidon SMT)** - Merkle tree based on Poseidon hash containing passport issuing country certificates
 2. **Passport ZK Circuits (Noir)** - Zero-knowledge schemes for proving passport validity without revealing personal data
-3. **Smart Contracts (zkSync)** - Contracts for storing ICAO root and verifying ZK proofs
+3. **Smart Contracts (Rarimo)** - Contracts for storing ICAO root and verifying ZK proofs
 4. **Biometric Data Generator** - Generator for test biometric passports with digital signatures
 
 ### Project Structure
@@ -173,20 +173,30 @@ Example output:
 ✅ Passport data generated and saved to: data/out_passport/passport_2025-10-21T12-48-27.json
 ```
 
-### Step 8: Generate ZK Proof
+### Step 8: Generate BJJ Identity Key
+
+Before generating the proof, you need to create a Baby Jubjub identity key:
+
+```bash
+# Generates BJJ secret key to data/sk_identity
+./BJJKeygen data/sk_identity
+```
+
+### Step 9: Generate ZK Proof for Registration
 
 ```bash
 # Generates Noir proof for the last created passport
-npm start generate-proof
+npm start generate-register-proof
 ```
 
 This command:
 
-1. Reads the latest passport from `data/out_passport/`
-2. Converts passport data to Noir circuit format using `@rarimo/passport-zk-circuits-noir-js`
-3. Gets ICAO root from contract (`getCertificatesRoot()`)
-4. Gets Merkle proof from contract (`getProofFromContract()`)
-5. Forms inputs for Noir:
+1. Generates BJJ secret key using BJJKeygen binary (if not exists)
+2. Reads the latest passport from `data/out_passport/`
+3. Converts passport data to Noir circuit format using `@rarimo/passport-zk-circuits-noir-js`
+4. Gets ICAO root from contract (`getCertificatesRoot()`)
+5. Gets Merkle proof from contract (`getProofFromContract()`)
+6. Forms inputs for Noir:
    - `dg1`, `dg15` - data groups
    - `ec`, `sa` - elliptic curve and signature parameters
    - `pk` - Document Signer public key
@@ -200,7 +210,7 @@ This command:
 8. Verifies proof locally
 9. Saves proof to file
 
-### Step 9: Register Passport in Contract
+### Step 10: Register Passport in Contract
 
 ```bash
 # Sends ZK proof to smart contract for verification
@@ -236,11 +246,20 @@ npm start register-certificate-rsapss
 # Generate test passport
 npm start generate-passport
 
-# Generate ZK proof
-npm start generate-proof
+# Generate ZK proof for registration
+npm start generate-register-proof
+
+# Generate query proof
+npm start generate-query-proof
 
 # Register passport via ZK proof
 npm start register-passport
+
+# Revoke passport identity
+npm start revoke-passport
+
+# Reissue identity with new key
+npm start reissue-identity
 
 # Update Active Authentication signature
 npm start update-aa-sig

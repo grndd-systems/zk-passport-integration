@@ -1,9 +1,14 @@
 import { ethers } from 'ethers';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
 import { revokePassport } from '../blockchain/tx';
-import { P_RSA_SHA256_2688, Z_NOIR_PASSPORT_11_256_3_5_576_248_1_1808_5_296 } from '../blockchain/eth';
+import {
+  P_RSA_SHA256_2688,
+  Z_NOIR_PASSPORT_11_256_3_5_576_248_1_1808_5_296,
+} from '../blockchain/eth';
+import {
+  loadLatestPassportData,
+  loadRegistrationProofOutputs,
+  extractModulusFromDG15,
+} from '../crypto/query-circuit-input';
 
 interface Passport {
   dataType: string;
@@ -17,61 +22,18 @@ export async function revokePassportIdentity() {
   console.log('Revoking passport identity...');
 
   // Load the generated passport data
-  const passportFiles = fs.readdirSync(path.join(__dirname, '../../data/out_passport'));
-  const latestPassportFile = passportFiles.sort().reverse()[0];
-  const passportPath = path.join(__dirname, '../../data/out_passport', latestPassportFile);
-  const passportData = JSON.parse(fs.readFileSync(passportPath, 'utf-8'));
+  const { data: passportData, filename } = loadLatestPassportData();
+  console.log('Using passport file:', filename);
 
-  console.log('Using passport file:', latestPassportFile);
+  // Load registration proof outputs
+  const { passportHash, identityKey } = loadRegistrationProofOutputs();
 
-  // Extract circuit output values from the public-inputs file
-  const publicInputsPath = path.join(__dirname, '../../data/proof/public-inputs');
-  const publicInputsContent = fs.readFileSync(publicInputsPath, 'utf-8');
-  const circuitOutputs = publicInputsContent
-    .trim()
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => BigInt(line.trim()));
-
-  console.log(
-    'Circuit outputs extracted from public-inputs:',
-    circuitOutputs.map((o) => ethers.toBeHex(o, 32)),
-  );
-
-  // The circuit public inputs/outputs are:
-  // [0] = passportKey (OUTPUT - passport key)
-  // [1] = passportHash (OUTPUT - hash of the passport data)
-  // [2] = dgCommit (OUTPUT - commitment to DG1)
-  // [3] = identityKey (OUTPUT - hashed identity key)
-  // [4] = certificatesRoot (INPUT - passed to circuit for verification)
-
-  const passportHash = circuitOutputs[1];
-  const identityKey = circuitOutputs[3];
+  console.log('Circuit outputs from registration proof:');
+  console.log('  passportHash:', ethers.toBeHex(passportHash, 32));
+  console.log('  identityKey:', ethers.toBeHex(identityKey, 32));
 
   // Extract modulus from DG15 for RSA operations
-  const dg15Buffer = Buffer.from(passportData.dg15, 'base64');
-
-  // Parse DG15 to extract the modulus
-  let offset = 0;
-  if (dg15Buffer[offset] === 0x6f) {
-    offset++;
-    if (dg15Buffer[offset] & 0x80) {
-      const lengthBytes = dg15Buffer[offset] & 0x7f;
-      offset += 1 + lengthBytes;
-    } else {
-      offset += 1;
-    }
-  }
-  const spki = dg15Buffer.slice(offset);
-
-  const publicKey = crypto.createPublicKey({
-    key: spki,
-    format: 'der',
-    type: 'spki',
-  });
-
-  const jwk = publicKey.export({ format: 'jwk' }) as crypto.JsonWebKey;
-  const modulusBytes = Buffer.from(jwk.n!, 'base64');
+  const modulusBytes = extractModulusFromDG15(passportData.dg15);
 
   console.log('Using modulus as publicKey:', modulusBytes.length, 'bytes');
 

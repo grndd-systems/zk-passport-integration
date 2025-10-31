@@ -1,9 +1,16 @@
 import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { reissueIdentityViaNoir, getCertificatesRoot } from '../blockchain/tx';
-import { P_RSA_SHA256_2688, Z_NOIR_PASSPORT_11_256_3_5_576_248_1_1808_5_296 } from '../blockchain/eth';
+import {
+  P_RSA_SHA256_2688,
+  Z_NOIR_PASSPORT_11_256_3_5_576_248_1_1808_5_296,
+} from '../blockchain/eth';
+import {
+  loadLatestPassportData,
+  loadRegistrationProofOutputs,
+  extractModulusFromDG15,
+} from '../crypto/query-circuit-input';
 
 interface Passport {
   dataType: string;
@@ -19,41 +26,26 @@ export async function reissuePassport() {
   // Load the generated passport data
   // The passport can be the SAME as original registration
   // What changes is the identityKey (derived from NEW sk_identity)
-  const passportFiles = fs.readdirSync(path.join(__dirname, '../../data/out_passport'));
-  const latestPassportFile = passportFiles.sort().reverse()[0];
-  const passportPath = path.join(__dirname, '../../data/out_passport', latestPassportFile);
-  const passportData = JSON.parse(fs.readFileSync(passportPath, 'utf-8'));
+  const { data: passportData, filename } = loadLatestPassportData();
+  console.log('Using passport file:', filename);
 
-  console.log('Using passport file:', latestPassportFile);
-
-  // Extract circuit output values from the public-inputs file
+  // Load registration proof outputs
   // NOTE: The proof must be generated with a NEW sk_identity (different from original registration)
   // This generates a NEW identityKey while proving ownership of the same passport
-  const publicInputsPath = path.join(__dirname, '../../data/proof/public-inputs');
-  const publicInputsContent = fs.readFileSync(publicInputsPath, 'utf-8');
-  const circuitOutputs = publicInputsContent
-    .trim()
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => BigInt(line.trim()));
+  const {
+    passportKey,
+    passportHash,
+    dgCommit,
+    identityKey,
+    certificatesRoot: circuitCertificatesRoot,
+  } = loadRegistrationProofOutputs();
 
-  console.log(
-    'Circuit outputs extracted from public-inputs:',
-    circuitOutputs.map((o) => ethers.toBeHex(o, 32)),
-  );
-
-  // The circuit public inputs/outputs are:
-  // [0] = passportKey (OUTPUT - passport key) extract_dg15_pk_hash::<DG15_LEN, AA_SHIFT, AA_SIG_TYPE>(dg15)
-  // [1] = passportHash (OUTPUT - hash of the passport data) extract_passport_hash::<HASH_ALGO>(sa_hash)
-  // [2] = dgCommit (OUTPUT - commitment to DG1) extract_dg1_commitment::<DG1_LEN>(dg1, sk_identity)
-  // [3] = identityKey (OUTPUT - hashed identity key) extract_pk_identity_hash(sk_identity)
-  // [4] = certificatesRoot (INPUT - passed to circuit for verification)
-
-  const passportKey = circuitOutputs[0];
-  const passportHash = circuitOutputs[1];
-  const dgCommit = circuitOutputs[2];
-  const identityKey = circuitOutputs[3];
-  const circuitCertificatesRoot = circuitOutputs[4];
+  console.log('Circuit outputs from registration proof:');
+  console.log('  passportKey:', ethers.toBeHex(passportKey, 32));
+  console.log('  passportHash:', ethers.toBeHex(passportHash, 32));
+  console.log('  dgCommit:', ethers.toBeHex(dgCommit, 32));
+  console.log('  identityKey:', ethers.toBeHex(identityKey, 32));
+  console.log('  certificatesRoot:', ethers.toBeHex(circuitCertificatesRoot, 32));
 
   // Get the current certificates root from the blockchain
   console.log('Reading certificates root from blockchain...');
@@ -72,29 +64,7 @@ export async function reissuePassport() {
   }
 
   // Extract modulus from DG15 for RSA operations
-  const dg15Buffer = Buffer.from(passportData.dg15, 'base64');
-
-  // Parse DG15 to extract the modulus
-  let offset = 0;
-  if (dg15Buffer[offset] === 0x6f) {
-    offset++;
-    if (dg15Buffer[offset] & 0x80) {
-      const lengthBytes = dg15Buffer[offset] & 0x7f;
-      offset += 1 + lengthBytes;
-    } else {
-      offset += 1;
-    }
-  }
-  const spki = dg15Buffer.slice(offset);
-
-  const publicKey = crypto.createPublicKey({
-    key: spki,
-    format: 'der',
-    type: 'spki',
-  });
-
-  const jwk = publicKey.export({ format: 'jwk' }) as crypto.JsonWebKey;
-  const modulusBytes = Buffer.from(jwk.n!, 'base64');
+  const modulusBytes = extractModulusFromDG15(passportData.dg15);
 
   console.log('Using modulus as publicKey:', modulusBytes.length, 'bytes');
 
@@ -139,9 +109,7 @@ export async function reissuePassport() {
   console.log('  passport.publicKey:', passport.publicKey);
   console.log('  passport.passportHash:', passport.passportHash);
   console.log('  zkPoints length:', zkPoints.length, 'bytes');
-  console.log(
-    '\nNOTE: This is a NEW identityKey (from new sk_identity) for the same passport',
-  );
+  console.log('\nNOTE: This is a NEW identityKey (from new sk_identity) for the same passport');
   console.log('  New identityKey:', ethers.toBeHex(identityKey, 32));
 
   // Use the tx.ts function for reissuing

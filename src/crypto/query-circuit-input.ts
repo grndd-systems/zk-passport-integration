@@ -1,6 +1,16 @@
-import * as fs from 'fs';
 import * as path from 'path';
 import { ethers } from 'ethers';
+
+// Re-export file loaders from utils
+export {
+  PassportData,
+  RegistrationProofOutputs,
+  loadRegistrationProofOutputs,
+  loadPkPassportHash,
+  loadPkIdentityHash,
+  loadLatestPassportData,
+  extractModulusFromDG15,
+} from '../utils/file-loaders';
 
 /**
  * Query Identity Circuit Input
@@ -8,13 +18,12 @@ import { ethers } from 'ethers';
  */
 export interface QueryCircuitInput extends Record<string, any> {
   // Private inputs
-  dg1: string[];  // 744 bits in binary representation
+  dg1: string[]; // 744 bits in binary representation
   skIdentity: string;
   pkPassportHash: string;
 
-  // SMT proof for identity state
-  idStateRoot: string;
-  idStateSiblings: string[];  // 80 elements for depth-80 SMT
+  // Identity hash (replaces SMT proof)
+  pkIdentityHash: string;
 
   // Event context
   eventID: string;
@@ -25,7 +34,7 @@ export interface QueryCircuitInput extends Record<string, any> {
 
   // Public inputs
   timestamp: string;
-  currentDate: string;  // Format: 0x3Y3Y3M3M3D3D (hex ASCII codes)
+  currentDate: string; // Format: 0x3Y3Y3M3M3D3D (hex ASCII codes)
   identityCounter: string;
 
   // Bounds
@@ -47,9 +56,12 @@ export interface QueryCircuitInput extends Record<string, any> {
  */
 export interface QueryInputBuilder {
   // Required: passport data from registration
-  dg1Bytes: number[];  // 93 bytes from preparePassportInputs
+  dg1Bytes: number[]; // 93 bytes from preparePassportInputs
   skIdentity: bigint;
-  pkPassportHash: bigint;  // From registration proof public outputs
+  pkPassportHash: bigint; // From registration proof public outputs
+
+  // Identity hash (required)
+  pkIdentityHash: bigint; // Public key identity hash
 
   // Event context
   eventID: string;
@@ -57,7 +69,7 @@ export interface QueryInputBuilder {
 
   // Current state
   timestamp: string;
-  currentDate: string;  // Format: 0x3Y3Y3M3M3D3D
+  currentDate: string; // Format: 0x3Y3Y3M3M3D3D
   identityCounter: string;
 
   // Query parameters
@@ -73,10 +85,6 @@ export interface QueryInputBuilder {
   birthDateUpperbound?: string;
   expirationDateLowerbound?: string;
   expirationDateUpperbound?: string;
-
-  // Optional: SMT proof (usually zero for now)
-  idStateRoot?: string;
-  idStateSiblings?: string[];
 }
 
 /**
@@ -100,8 +108,6 @@ function bytesToBits(bytes: number[]): string[] {
  *
  * Default values:
  * - All bounds default to 0 or ZERO_DATE (0x303030303030)
- * - idStateRoot defaults to 0 (no SMT verification)
- * - idStateSiblings defaults to 80 zeros (depth-80 SMT)
  *
  * @param params - Builder parameters with all required circuit inputs
  * @returns Complete circuit input ready for proof generation
@@ -111,6 +117,7 @@ export function buildQueryCircuitInput(params: QueryInputBuilder): QueryCircuitI
     dg1Bytes,
     skIdentity,
     pkPassportHash,
+    pkIdentityHash,
     eventID,
     eventData,
     timestamp,
@@ -126,8 +133,6 @@ export function buildQueryCircuitInput(params: QueryInputBuilder): QueryCircuitI
     birthDateUpperbound = '0x303030303030',
     expirationDateLowerbound = '0x303030303030',
     expirationDateUpperbound = '0x303030303030',
-    idStateRoot = '0',
-    idStateSiblings = new Array(80).fill('0')
   } = params;
 
   // Convert dg1 bytes to bits
@@ -147,8 +152,7 @@ export function buildQueryCircuitInput(params: QueryInputBuilder): QueryCircuitI
     dg1: dg1Bits,
     eventID: convertToDecimal(eventID),
     eventData: convertToDecimal(eventData),
-    idStateRoot: convertToDecimal(idStateRoot),
-    idStateSiblings,
+    pkIdentityHash: pkIdentityHash.toString(),
     pkPassportHash: pkPassportHash.toString(),
     selector: selector.toString(),
     skIdentity: skIdentity.toString(),
@@ -163,38 +167,8 @@ export function buildQueryCircuitInput(params: QueryInputBuilder): QueryCircuitI
     birthDateUpperbound: birthDateUpperbound, // Keep as hex string (passport date format)
     expirationDateLowerbound: expirationDateLowerbound, // Keep as hex string (passport date format)
     expirationDateUpperbound: expirationDateUpperbound, // Keep as hex string (passport date format)
-    citizenshipMask
+    citizenshipMask,
   };
-}
-
-/**
- * Load pkPassportHash from registration proof public outputs
- *
- * The registration proof generates 5 public outputs:
- * [0] passportKey - Hash of passport identity
- * [1] pkPassportHash - Public key hash from Active Authentication (THIS ONE)
- * [2] identityKey - Hash of identity
- * [3] activeIdentity - Current active identity hash
- * [4] activePassportHash - Current active passport hash
- *
- * @returns The pkPassportHash (public key hash) from the registration proof
- * @throws Error if registration proof not found
- */
-export function loadPkPassportHash(): bigint {
-  const publicInputsPath = path.join(process.cwd(), 'data', 'proof', 'public-inputs');
-
-  if (!fs.existsSync(publicInputsPath)) {
-    throw new Error('Registration proof public-inputs not found. Please run register-passport first.');
-  }
-
-  const publicInputsContent = fs.readFileSync(publicInputsPath, 'utf-8');
-  const circuitOutputs = publicInputsContent
-    .trim()
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => BigInt(line.trim()));
-
-  return circuitOutputs[1];
 }
 
 /**
@@ -215,9 +189,43 @@ export function encodePassportDate(date: Date): string {
   const dateStr = year + month + day; // YYMMDD
 
   // Convert each character to hex ASCII code
-  const hex = dateStr.split('').map(c => c.charCodeAt(0).toString(16)).join('');
+  const hex = dateStr
+    .split('')
+    .map((c) => c.charCodeAt(0).toString(16))
+    .join('');
 
   return `0x${hex}`;
+}
+
+/**
+ * Helper to encode passport date as BigInt (for contract calls)
+ *
+ * Same as encodePassportDate but returns BigInt instead of hex string.
+ * This is useful for contract calls that expect uint256.
+ *
+ * @param date - JavaScript Date object
+ * @returns BigInt representation of the encoded date
+ */
+export function encodePassportDateAsBigInt(date: Date): bigint {
+  return BigInt(encodePassportDate(date));
+}
+
+/**
+ * Get current date from blockchain block timestamp
+ * Returns the date encoded in passport format as BigInt
+ *
+ * @param provider - Ethers provider
+ * @returns Encoded date as BigInt
+ */
+export async function getCurrentDateFromBlockchain(provider: any): Promise<bigint> {
+  const block = await provider.getBlock('latest');
+
+  if (!block) {
+    throw new Error('Failed to get latest block');
+  }
+
+  const date = new Date(block.timestamp * 1000);
+  return encodePassportDateAsBigInt(date);
 }
 
 /**
@@ -252,30 +260,246 @@ export function decodePassportDate(hexDate: string): Date {
  * This must match the COUNTRY_ARR in citizenshipCheck.circom
  */
 export const COUNTRY_ORDER = [
-  'ABW', 'AFG', 'AGO', 'AIA', 'ALB', 'AND', 'ANT', 'ARE', 'ARG', 'ARM',
-  'ASM', 'ATA', 'ATG', 'AUS', 'AUT', 'AZE', 'BDI', 'BEL', 'BEN', 'BFA',
-  'BGD', 'BGR', 'BHR', 'BHS', 'BIH', 'BLM', 'BLR', 'BLZ', 'BMU', 'BOL',
-  'BRA', 'BRB', 'BRN', 'BTN', 'BWA', 'CAF', 'CAN', 'CCK', 'CHE', 'CHL',
-  'CHN', 'CIV', 'CMR', 'COD', 'COG', 'COK', 'COL', 'COM', 'CPV', 'CRI',
-  'CUB', 'CUW', 'CXR', 'CYM', 'CYP', 'CZE', 'DEU', 'DJI', 'DMA', 'DNK',
-  'DOM', 'DZA', 'ECU', 'EGY', 'ERI', 'ESH', 'ESP', 'EST', 'ETH', 'FIN',
-  'FJI', 'FLK', 'FRA', 'FRO', 'FSM', 'GAB', 'GBR', 'GEO', 'GGY', 'GHA',
-  'GIB', 'GIN', 'GMB', 'GNB', 'GNQ', 'GRC', 'GRD', 'GRL', 'GTM', 'GUM',
-  'GUY', 'HKG', 'HND', 'HRV', 'HTI', 'HUN', 'IDN', 'IMN', 'IND', 'IOT',
-  'IRL', 'IRN', 'IRQ', 'ISL', 'ISR', 'ITA', 'JAM', 'JEY', 'JOR', 'JPN',
-  'KAZ', 'KEN', 'KGZ', 'KHM', 'KIR', 'KNA', 'KOR', 'KWT', 'LAO', 'LBN',
-  'LBR', 'LBY', 'LCA', 'LIE', 'LKA', 'LSO', 'LTU', 'LUX', 'LVA', 'MAC',
-  'MAF', 'MAR', 'MCO', 'MDA', 'MDG', 'MDV', 'MEX', 'MHL', 'MKD', 'MLI',
-  'MLT', 'MMR', 'MNE', 'MNG', 'MNP', 'MOZ', 'MRT', 'MSR', 'MUS', 'MWI',
-  'MYS', 'MYT', 'NAM', 'NCL', 'NER', 'NGA', 'NIC', 'NIU', 'NLD', 'NOR',
-  'NPL', 'NRU', 'NZL', 'OMN', 'PAK', 'PAN', 'PCN', 'PER', 'PHL', 'PLW',
-  'PNG', 'POL', 'PRI', 'PRK', 'PRT', 'PRY', 'PSE', 'PYF', 'QAT', 'REU',
-  'ROU', 'RUS', 'RWA', 'SAU', 'SDN', 'SEN', 'SGP', 'SHN', 'SJM', 'SLB',
-  'SLE', 'SLV', 'SMR', 'SOM', 'SPM', 'SRB', 'SSD', 'STP', 'SUR', 'SVK',
-  'SVN', 'SWE', 'SWZ', 'SXM', 'SYC', 'SYR', 'TCA', 'TCD', 'TGO', 'THA',
-  'TJK', 'TKL', 'TKM', 'TLS', 'TON', 'TTO', 'TUN', 'TUR', 'TUV', 'TWN',
-  'TZA', 'UGA', 'UKR', 'URY', 'USA', 'UZB', 'VAT', 'VCT', 'VEN', 'VGB',
-  'VIR', 'VNM', 'VUT', 'WLF', 'WSM', 'XKX', 'YEM', 'ZAF', 'ZMB', 'ZWE'
+  'ABW',
+  'AFG',
+  'AGO',
+  'AIA',
+  'ALB',
+  'AND',
+  'ANT',
+  'ARE',
+  'ARG',
+  'ARM',
+  'ASM',
+  'ATA',
+  'ATG',
+  'AUS',
+  'AUT',
+  'AZE',
+  'BDI',
+  'BEL',
+  'BEN',
+  'BFA',
+  'BGD',
+  'BGR',
+  'BHR',
+  'BHS',
+  'BIH',
+  'BLM',
+  'BLR',
+  'BLZ',
+  'BMU',
+  'BOL',
+  'BRA',
+  'BRB',
+  'BRN',
+  'BTN',
+  'BWA',
+  'CAF',
+  'CAN',
+  'CCK',
+  'CHE',
+  'CHL',
+  'CHN',
+  'CIV',
+  'CMR',
+  'COD',
+  'COG',
+  'COK',
+  'COL',
+  'COM',
+  'CPV',
+  'CRI',
+  'CUB',
+  'CUW',
+  'CXR',
+  'CYM',
+  'CYP',
+  'CZE',
+  'DEU',
+  'DJI',
+  'DMA',
+  'DNK',
+  'DOM',
+  'DZA',
+  'ECU',
+  'EGY',
+  'ERI',
+  'ESH',
+  'ESP',
+  'EST',
+  'ETH',
+  'FIN',
+  'FJI',
+  'FLK',
+  'FRA',
+  'FRO',
+  'FSM',
+  'GAB',
+  'GBR',
+  'GEO',
+  'GGY',
+  'GHA',
+  'GIB',
+  'GIN',
+  'GMB',
+  'GNB',
+  'GNQ',
+  'GRC',
+  'GRD',
+  'GRL',
+  'GTM',
+  'GUM',
+  'GUY',
+  'HKG',
+  'HND',
+  'HRV',
+  'HTI',
+  'HUN',
+  'IDN',
+  'IMN',
+  'IND',
+  'IOT',
+  'IRL',
+  'IRN',
+  'IRQ',
+  'ISL',
+  'ISR',
+  'ITA',
+  'JAM',
+  'JEY',
+  'JOR',
+  'JPN',
+  'KAZ',
+  'KEN',
+  'KGZ',
+  'KHM',
+  'KIR',
+  'KNA',
+  'KOR',
+  'KWT',
+  'LAO',
+  'LBN',
+  'LBR',
+  'LBY',
+  'LCA',
+  'LIE',
+  'LKA',
+  'LSO',
+  'LTU',
+  'LUX',
+  'LVA',
+  'MAC',
+  'MAF',
+  'MAR',
+  'MCO',
+  'MDA',
+  'MDG',
+  'MDV',
+  'MEX',
+  'MHL',
+  'MKD',
+  'MLI',
+  'MLT',
+  'MMR',
+  'MNE',
+  'MNG',
+  'MNP',
+  'MOZ',
+  'MRT',
+  'MSR',
+  'MUS',
+  'MWI',
+  'MYS',
+  'MYT',
+  'NAM',
+  'NCL',
+  'NER',
+  'NGA',
+  'NIC',
+  'NIU',
+  'NLD',
+  'NOR',
+  'NPL',
+  'NRU',
+  'NZL',
+  'OMN',
+  'PAK',
+  'PAN',
+  'PCN',
+  'PER',
+  'PHL',
+  'PLW',
+  'PNG',
+  'POL',
+  'PRI',
+  'PRK',
+  'PRT',
+  'PRY',
+  'PSE',
+  'PYF',
+  'QAT',
+  'REU',
+  'ROU',
+  'RUS',
+  'RWA',
+  'SAU',
+  'SDN',
+  'SEN',
+  'SGP',
+  'SHN',
+  'SJM',
+  'SLB',
+  'SLE',
+  'SLV',
+  'SMR',
+  'SOM',
+  'SPM',
+  'SRB',
+  'SSD',
+  'STP',
+  'SUR',
+  'SVK',
+  'SVN',
+  'SWE',
+  'SWZ',
+  'SXM',
+  'SYC',
+  'SYR',
+  'TCA',
+  'TCD',
+  'TGO',
+  'THA',
+  'TJK',
+  'TKL',
+  'TKM',
+  'TLS',
+  'TON',
+  'TTO',
+  'TUN',
+  'TUR',
+  'TUV',
+  'TWN',
+  'TZA',
+  'UGA',
+  'UKR',
+  'URY',
+  'USA',
+  'UZB',
+  'VAT',
+  'VCT',
+  'VEN',
+  'VGB',
+  'VIR',
+  'VNM',
+  'VUT',
+  'WLF',
+  'WSM',
+  'XKX',
+  'YEM',
+  'ZAF',
+  'ZMB',
+  'ZWE',
 ];
 
 /**
@@ -295,7 +519,7 @@ export function calculateCitizenshipMask(blockedCountries: string[]): bigint {
     // Set the bit at position (240 - 1 - index)
     // because of bit reversal in the circuit
     const bitPosition = 240 - 1 - index;
-    mask |= (1n << BigInt(bitPosition));
+    mask |= 1n << BigInt(bitPosition);
   }
 
   return mask;
@@ -352,24 +576,24 @@ export function buildSelector(options: {
 }): number {
   let selector = 0;
 
-  if (options.enableNullifier) selector |= (1 << 0);
-  if (options.enableBirthDate) selector |= (1 << 1);
-  if (options.enableExpirationDate) selector |= (1 << 2);
-  if (options.enableName) selector |= (1 << 3);
-  if (options.enableNationality) selector |= (1 << 4);
-  if (options.enableCitizenship) selector |= (1 << 5);
-  if (options.enableSex) selector |= (1 << 6);
-  if (options.enableDocumentNumber) selector |= (1 << 7);
-  if (options.enableTimestampLowerbound) selector |= (1 << 8);
-  if (options.enableTimestampUpperbound) selector |= (1 << 9);
-  if (options.enableIdentityCounterLowerbound) selector |= (1 << 10);
-  if (options.enableIdentityCounterUpperbound) selector |= (1 << 11);
-  if (options.enableExpirationDateLowerbound) selector |= (1 << 12);
-  if (options.enableExpirationDateUpperbound) selector |= (1 << 13);
-  if (options.enableBirthDateLowerbound) selector |= (1 << 14);
-  if (options.enableBirthDateUpperbound) selector |= (1 << 15);
-  if (options.verifyCitizenshipWhitelist) selector |= (1 << 16);
-  if (options.verifyCitizenshipBlacklist) selector |= (1 << 17);
+  if (options.enableNullifier) selector |= 1 << 0;
+  if (options.enableBirthDate) selector |= 1 << 1;
+  if (options.enableExpirationDate) selector |= 1 << 2;
+  if (options.enableName) selector |= 1 << 3;
+  if (options.enableNationality) selector |= 1 << 4;
+  if (options.enableCitizenship) selector |= 1 << 5;
+  if (options.enableSex) selector |= 1 << 6;
+  if (options.enableDocumentNumber) selector |= 1 << 7;
+  if (options.enableTimestampLowerbound) selector |= 1 << 8;
+  if (options.enableTimestampUpperbound) selector |= 1 << 9;
+  if (options.enableIdentityCounterLowerbound) selector |= 1 << 10;
+  if (options.enableIdentityCounterUpperbound) selector |= 1 << 11;
+  if (options.enableExpirationDateLowerbound) selector |= 1 << 12;
+  if (options.enableExpirationDateUpperbound) selector |= 1 << 13;
+  if (options.enableBirthDateLowerbound) selector |= 1 << 14;
+  if (options.enableBirthDateUpperbound) selector |= 1 << 15;
+  if (options.verifyCitizenshipWhitelist) selector |= 1 << 16;
+  if (options.verifyCitizenshipBlacklist) selector |= 1 << 17;
 
   return selector;
 }

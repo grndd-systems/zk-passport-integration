@@ -1,23 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import {
+  loadLatestPassportData,
+  loadRegistrationProofOutputs,
+} from '../crypto/query-circuit-input';
+import { extractModulusFromDG15 } from '../utils/file-loaders';
 
 /**
  * Updates only the AA signature in an existing passport JSON
  * This doesn't affect the ZK proof since AA signature is NOT part of circuit inputs
  */
-
-// Extract public inputs from public-inputs file
-function extractPublicInputsFromFile(publicInputsPath: string): bigint[] {
-  const publicInputsContent = fs.readFileSync(publicInputsPath, 'utf-8');
-  const publicInputs = publicInputsContent
-    .trim()
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => BigInt(line.trim()));
-
-  return publicInputs;
-}
 
 // Verify AA signature using the same logic as PRSASHAAuthenticator.authenticate()
 function authenticate(
@@ -38,26 +31,7 @@ function authenticate(
   }
 
   // Extract modulus from DG15
-  let offset = 0;
-  if (publicKeyDER[offset] === 0x6f) {
-    offset++;
-    if (publicKeyDER[offset] & 0x80) {
-      const lengthBytes = publicKeyDER[offset] & 0x7f;
-      offset += 1 + lengthBytes;
-    } else {
-      offset += 1;
-    }
-  }
-  const spki = publicKeyDER.slice(offset);
-
-  const publicKey = crypto.createPublicKey({
-    key: spki,
-    format: 'der',
-    type: 'spki',
-  });
-
-  const jwk = publicKey.export({ format: 'jwk' }) as crypto.JsonWebKey;
-  const modulusBytes = Buffer.from(jwk.n!, 'base64');
+  const modulusBytes = extractModulusFromDG15(publicKeyDER.toString('base64'));
   const modulus = bufferToBigInt(modulusBytes);
 
   // Verify using raw modexp: decipher = signature^e mod modulus
@@ -131,26 +105,7 @@ function generateAASignature(challengeHex: string, dg15Data: Buffer): string {
   const privateKeyPEM = fs.readFileSync(keyPath, 'utf8');
 
   // Extract the actual modulus from DG15
-  let offset = 0;
-  if (dg15Data[offset] === 0x6f) {
-    offset++;
-    if (dg15Data[offset] & 0x80) {
-      const lengthBytes = dg15Data[offset] & 0x7f;
-      offset += 1 + lengthBytes;
-    } else {
-      offset += 1;
-    }
-  }
-  const spki = dg15Data.slice(offset);
-
-  const publicKey = crypto.createPublicKey({
-    key: spki,
-    format: 'der',
-    type: 'spki',
-  });
-
-  const jwk = publicKey.export({ format: 'jwk' }) as crypto.JsonWebKey;
-  const modulusBytes = Buffer.from(jwk.n!, 'base64');
+  const modulusBytes = extractModulusFromDG15(dg15Data.toString('base64'));
   const modulus = bufferToBigInt(modulusBytes);
   const RSA_SIZE = modulusBytes.length;
 
@@ -205,26 +160,11 @@ function generateAASignature(challengeHex: string, dg15Data: Buffer): string {
 }
 
 export async function updateAASignature() {
-  // Extract identityKey from public-inputs file
-  const publicInputsPath = path.join(process.cwd(), 'data', 'proof', 'public-inputs');
-  console.log('Reading public-inputs file:', publicInputsPath);
+  // Load registration proof outputs
+  const { passportKey, passportHash, dgCommit, identityKey, certificatesRoot } =
+    loadRegistrationProofOutputs();
 
-  const circuitOutputs = extractPublicInputsFromFile(publicInputsPath);
-
-  // The circuit public inputs/outputs are:
-  // [0] = passportKey (OUTPUT - passport key)
-  // [1] = passportHash (OUTPUT - hash of the passport data)
-  // [2] = dgCommit (OUTPUT - commitment to DG1)
-  // [3] = identityKey (OUTPUT - hashed identity key)
-  // [4] = certificatesRoot (INPUT - passed to circuit for verification)
-
-  const passportKey = circuitOutputs[0];
-  const passportHash = circuitOutputs[1];
-  const dgCommit = circuitOutputs[2];
-  const identityKey = circuitOutputs[3];
-  const certificatesRoot = circuitOutputs[4];
-
-  console.log('\nCircuit outputs:');
+  console.log('\nCircuit outputs from registration proof:');
   console.log('  passportKey:', '0x' + passportKey.toString(16).padStart(64, '0'));
   console.log('  passportHash:', '0x' + passportHash.toString(16).padStart(64, '0'));
   console.log('  dgCommit:', '0x' + dgCommit.toString(16).padStart(64, '0'));
@@ -237,13 +177,8 @@ export async function updateAASignature() {
   console.log('\nChallenge (last 8 bytes of identityKey):', challenge);
 
   // Load latest passport
-  const passportDir = path.join(process.cwd(), 'data', 'out_passport');
-  const passportFiles = fs.readdirSync(passportDir);
-  const latestFile = passportFiles.sort().reverse()[0];
-  const passportPath = path.join(passportDir, latestFile);
-
-  console.log('\nLoading passport:', latestFile);
-  const passport = JSON.parse(fs.readFileSync(passportPath, 'utf8'));
+  const { data: passport, filename } = loadLatestPassportData();
+  console.log('\nLoading passport:', filename);
 
   const dg15Buffer = Buffer.from(passport.dg15, 'base64');
   console.log('DG15 length:', dg15Buffer.length, 'bytes');
@@ -266,6 +201,7 @@ export async function updateAASignature() {
   passport.signature = newSignature;
 
   // Save with new name
+  const passportDir = path.join(process.cwd(), 'data', 'out_passport');
   const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
   const outputPath = path.join(passportDir, `passport_${timestamp}.json`);
   fs.writeFileSync(outputPath, JSON.stringify(passport, null, 2));

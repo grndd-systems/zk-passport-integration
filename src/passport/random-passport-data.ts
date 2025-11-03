@@ -72,7 +72,7 @@ export function generateRandomPassportData(): PassportPersonalData {
       .toString()
       .padStart(8, '0');
 
-  const issuingCountry = "ITA";
+  const issuingCountry = 'ITA';
   return {
     ...randomName,
     passportNumber,
@@ -81,6 +81,6 @@ export function generateRandomPassportData(): PassportPersonalData {
     sex,
     expiryDate: '351231', // Expires at end of 2035
     personalNumber,
-    issuingCountry
+    issuingCountry,
   };
 }

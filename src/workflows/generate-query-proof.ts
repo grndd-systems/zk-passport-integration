@@ -1,15 +1,11 @@
 import * as snarkjs from 'snarkjs';
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-  buildQueryCircuitInput,
-  QueryInputBuilder,
-  QueryCircuitInput
-} from '../crypto/query-circuit-input';
+import { buildQueryCircuitInput, QueryInputBuilder } from '../crypto/query-circuit-input';
 
 const CIRCUIT_DIR = path.join(__dirname, '../../data/circuit/queryIdentity');
 const WASM_FILE = path.join(CIRCUIT_DIR, 'queryIdentity.wasm');
-const ZKEY_FILE = path.join(CIRCUIT_DIR, 'queryIdentity_0000.zkey');
+const ZKEY_FILE = path.join(CIRCUIT_DIR, 'queryIdentity_0001.zkey');
 const VKEY_FILE = path.join(CIRCUIT_DIR, 'verification_key.json');
 
 export interface QueryProofParams extends QueryInputBuilder {
@@ -34,6 +30,7 @@ export interface QueryProofResult {
  *   dg1Bytes: inputs.dg1,
  *   skIdentity: BigInt(inputs.sk_identity),
  *   pkPassportHash: loadPkPassportHash(),
+ *   pkIdentityHash: loadPkIdentityHash(),
  *   eventID: '0x...',
  *   eventData: '0x...',
  *   timestamp: '1760152656',
@@ -69,7 +66,7 @@ export async function generateQueryProof(params: QueryProofParams): Promise<Quer
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(
     circuitInput,
     WASM_FILE,
-    ZKEY_FILE
+    ZKEY_FILE,
   );
 
   console.log('Proof generated');
@@ -95,26 +92,17 @@ export async function generateQueryProof(params: QueryProofParams): Promise<Quer
     throw new Error('Generated proof is invalid');
   }
 
-  // Generate Solidity calldata
-  const calldata = await snarkjs.groth16.exportSolidityCallData(proof, publicSignals);
-  const calldataPath = path.join(outputDir, 'query_calldata.txt');
-  fs.writeFileSync(calldataPath, calldata);
-  console.log(`Solidity calldata saved to: ${calldataPath}`);
-
   return {
     proof,
     publicSignals,
-    proofJson: JSON.stringify(proof, null, 2)
+    proofJson: JSON.stringify(proof, null, 2),
   };
 }
 
 /**
  * Verify an existing query proof
  */
-export async function verifyQueryProof(
-  proof: any,
-  publicSignals: string[]
-): Promise<boolean> {
+export async function verifyQueryProof(proof: any, publicSignals: string[]): Promise<boolean> {
   const vkey = JSON.parse(fs.readFileSync(VKEY_FILE, 'utf8'));
   return await snarkjs.groth16.verify(vkey, publicSignals, proof);
 }

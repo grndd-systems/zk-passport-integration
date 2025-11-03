@@ -56,3 +56,14 @@ export function getRegistration2Contract(wallet: ethers.Wallet) {
   }
   return new ethers.Contract(CONFIG.REGISTRATION2_ADDRESS, abi, wallet);
 }
+
+export function getQueryProofExecutorContract(wallet: ethers.Wallet) {
+  if (!CONFIG.QUERY_PROOF_EXECUTOR_ABI_PATH) {
+    throw new Error('QUERY_PROOF_EXECUTOR_ABI_PATH not set');
+  }
+  const abi = loadAbi(CONFIG.QUERY_PROOF_EXECUTOR_ABI_PATH);
+  if (!CONFIG.QUERY_PROOF_EXECUTOR_ADDRESS) {
+    throw new Error('QUERY_PROOF_EXECUTOR_ADDRESS not set');
+  }
+  return new ethers.Contract(CONFIG.QUERY_PROOF_EXECUTOR_ADDRESS, abi, wallet);
+}

@@ -16,9 +16,7 @@ export function readSkIdentity(skIdentityPath?: string): bigint {
   const filePath = skIdentityPath || path.join(process.cwd(), 'data', 'sk_identity');
 
   if (!fs.existsSync(filePath)) {
-    throw new Error(
-      `BJJ secret key file not found at: ${filePath}. Please run BJJKeygen first.`
-    );
+    throw new Error(`BJJ secret key file not found at: ${filePath}. Please run BJJKeygen first.`);
   }
 
   // Read as binary buffer

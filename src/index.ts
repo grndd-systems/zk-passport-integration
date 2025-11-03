@@ -7,6 +7,8 @@ import { generateBiometricPassportData } from './passport/biometric-passport-gen
 import { generateRegisterIdentityProof } from './workflows/generate-register-proof';
 import { updateAASignature } from './passport/generate-aa-signature';
 import { generateRandomPassportData } from './passport/random-passport-data';
+import { executeQueryProofWorkflow, checkKYCStatus } from './workflows/execute-query-proof';
+import { generateQueryProofFromContract } from './workflows/generate-query-proof-from-contract';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -64,7 +66,7 @@ async function main() {
     try {
       const output = execSync(`"${bjjKeygenPath}" "${skIdentityPath}"`, {
         encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
       console.log('BJJKeygen output:', output.trim());
       console.log(`✅ Secret key saved to: ${skIdentityPath}\n`);
@@ -81,6 +83,39 @@ async function main() {
     await revokePassportIdentity();
   } else if (command === 'reissue-identity') {
     await reissuePassport();
+  } else if (command === 'generate-query-proof') {
+    // Get requestId and userAddress from command line arguments
+    const requestId = process.argv[3];
+    const userAddress = process.argv[4];
+
+    if (!requestId || !userAddress) {
+      console.error('Error: requestId and userAddress are required');
+      console.log('Usage: npm run generate-query-proof <requestId> <userAddress>');
+      process.exit(1);
+    }
+
+    await generateQueryProofFromContract({
+      requestId,
+      userAddress,
+    });
+  } else if (command === 'execute-query-proof') {
+    // Get requestId from command line argument
+    const requestId = process.argv[3];
+    if (!requestId) {
+      console.error('Error: requestId is required');
+      console.log('Usage: npm run execute-query-proof <requestId> [userAddress]');
+      process.exit(1);
+    }
+
+    const userAddress = process.argv[4]; // Optional
+
+    await executeQueryProofWorkflow({
+      requestId,
+      userAddress,
+    });
+  } else if (command === 'check-kyc-status') {
+    const address = process.argv[3]; // Optional
+    await checkKYCStatus(address);
   } else {
     console.log('Usage: npm start [command]');
     console.log('\nCommands:');
@@ -93,9 +128,7 @@ async function main() {
     console.log(
       '  generate-passport           - Generate biometric passport data. Only for a specific circuit',
     );
-    console.log(
-      '  generate-register-proof     - Generate ZK proof for passport registration',
-    );
+    console.log('  generate-register-proof     - Generate ZK proof for passport registration');
     console.log(
       '  update-aa-sig - Update Active Authentication signature for last generated passport',
     );
@@ -108,11 +141,27 @@ async function main() {
     console.log(
       '  reissue-passport            - Reissue identity with new identityKey (BJJ key pair) for same passport',
     );
+    console.log(
+      '  generate-query-proof <requestId> <userAddress> - Generate query proof using contract parameters',
+    );
+    console.log(
+      '  execute-query-proof <requestId> [userAddress] - Execute query proof for KYC verification',
+    );
+    console.log(
+      '  check-kyc-status [address]  - Check KYC status for an address (defaults to wallet address)',
+    );
     process.exit(0);
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Explicitly exit the process after successful completion
+    // This is necessary because some operations (like snarkjs proof generation)
+    // create worker threads that prevent Node.js from exiting naturally
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

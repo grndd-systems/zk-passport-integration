@@ -2,7 +2,7 @@ node_modules
 dist
 data/out_passport
 data/proof
-data/query-proof
+data/query-proof*
 data/sk_identity
 *.pem
 !mastelist.pem

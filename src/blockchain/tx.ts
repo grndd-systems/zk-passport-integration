@@ -388,6 +388,68 @@ export async function executeQueryProof(
 }
 
 /**
+ * Execute Noir query proof via QueryProofExecutor contract
+ *
+ * This function calls the executeNoir() function from AQueryProofExecutor.
+ * Unlike executeQueryProof which uses Groth16 ProofPoints, this accepts raw proof bytes.
+ *
+ * @param currentDate - Current date in YYMMDD format (e.g., "251030" for Oct 30, 2025)
+ * @param userPayload - ABI-encoded user data (address, requestId, nullifier, passportHash, timestamp)
+ * @param zkPoints - UltraPlonk proof bytes (from Noir circuit)
+ * @returns Transaction object
+ */
+export async function executeQueryProofNoir(
+  currentDate: BigNumberish,
+  userPayload: BytesLike,
+  zkPoints: BytesLike,
+) {
+  const { wallet } = getProviderAndWallet();
+  const executorContract = getQueryProofExecutorContract(wallet);
+
+  console.log('\n=== Executing Noir Query Proof ===');
+  console.log('currentDate:', currentDate.toString());
+  console.log('userPayload:', userPayload);
+  console.log('zkPoints length:', zkPoints.length, 'bytes');
+
+  const tx = await executorContract.executeNoir(currentDate, userPayload, zkPoints, {
+    gasLimit: 20000000,
+  } as Overrides);
+
+  console.log('Sent executeNoir tx hash:', tx.hash);
+
+  const receipt = await tx.wait();
+  console.log('Confirmed executeNoir transaction');
+
+  // Parse events from receipt
+  if (receipt) {
+    for (const log of receipt.logs) {
+      try {
+        const parsed = executorContract.interface.parseLog({
+          topics: [...log.topics],
+          data: log.data,
+        });
+        if (parsed && parsed.name === 'ZKKYCVerified') {
+          const requestIdEvent = parsed.args.celestialId || parsed.args.requestId;
+          const userEvent = parsed.args.user;
+          const nullifierEvent = parsed.args.nullifier;
+          const timestamp = parsed.args.timestamp;
+
+          console.log('\n=== QueryProofExecutor.ZKKYCVerified Event ===');
+          console.log('requestId:', requestIdEvent);
+          console.log('user:', userEvent);
+          console.log('nullifier:', nullifierEvent.toString());
+          console.log('timestamp:', timestamp.toString());
+        }
+      } catch (e) {
+        // Skip logs that don't match
+      }
+    }
+  }
+
+  return tx;
+}
+
+/**
  * Get ZK KYC status for an address
  *
  * @param userAddress - Address to check

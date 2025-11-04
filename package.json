@@ -11,7 +11,9 @@
     "register-passport": "node dist/index.js register-passport",
     "generate-register-proof": "node dist/index.js generate-register-proof",
     "generate-query-proof": "node dist/index.js generate-query-proof",
+    "generate-query-proof-noir": "node dist/index.js generate-query-proof-noir",
     "execute-query-proof": "node dist/index.js execute-query-proof",
+    "execute-query-proof-noir": "node dist/index.js execute-query-proof-noir",
     "check-kyc-status": "node dist/index.js check-kyc-status"
   },
   "dependencies": {

@@ -9,6 +9,8 @@ import { updateAASignature } from './passport/generate-aa-signature';
 import { generateRandomPassportData } from './passport/random-passport-data';
 import { executeQueryProofWorkflow, checkKYCStatus } from './workflows/execute-query-proof';
 import { generateQueryProofFromContract } from './workflows/generate-query-proof-from-contract';
+import { generateNoirQueryProofFromContract } from './workflows/generate-query-proof-noir';
+import { executeNoirQueryProofWorkflow } from './workflows/execute-query-proof-noir';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -98,6 +100,21 @@ async function main() {
       requestId,
       userAddress,
     });
+  } else if (command === 'generate-query-proof-noir') {
+    // Get requestId and userAddress from command line arguments
+    const requestId = process.argv[3];
+    const userAddress = process.argv[4];
+
+    if (!requestId || !userAddress) {
+      console.error('Error: requestId and userAddress are required');
+      console.log('Usage: npm run generate-query-proof-noir <requestId> <userAddress>');
+      process.exit(1);
+    }
+
+    await generateNoirQueryProofFromContract({
+      requestId,
+      userAddress,
+    });
   } else if (command === 'execute-query-proof') {
     // Get requestId from command line argument
     const requestId = process.argv[3];
@@ -110,6 +127,21 @@ async function main() {
     const userAddress = process.argv[4]; // Optional
 
     await executeQueryProofWorkflow({
+      requestId,
+      userAddress,
+    });
+  } else if (command === 'execute-query-proof-noir') {
+    // Get requestId from command line argument
+    const requestId = process.argv[3];
+    if (!requestId) {
+      console.error('Error: requestId is required');
+      console.log('Usage: npm run execute-query-proof-noir <requestId> [userAddress]');
+      process.exit(1);
+    }
+
+    const userAddress = process.argv[4]; // Optional
+
+    await executeNoirQueryProofWorkflow({
       requestId,
       userAddress,
     });
@@ -142,10 +174,16 @@ async function main() {
       '  reissue-passport            - Reissue identity with new identityKey (BJJ key pair) for same passport',
     );
     console.log(
-      '  generate-query-proof <requestId> <userAddress> - Generate query proof using contract parameters',
+      '  generate-query-proof <requestId> <userAddress> - Generate query proof (Circom/Groth16) using contract parameters',
     );
     console.log(
-      '  execute-query-proof <requestId> [userAddress] - Execute query proof for KYC verification',
+      '  generate-query-proof-noir <requestId> <userAddress> - Generate query proof (Noir/UltraPlonk) using contract parameters',
+    );
+    console.log(
+      '  execute-query-proof <requestId> [userAddress] - Execute Circom query proof for KYC verification',
+    );
+    console.log(
+      '  execute-query-proof-noir <requestId> [userAddress] - Execute Noir query proof for KYC verification',
     );
     console.log(
       '  check-kyc-status [address]  - Check KYC status for an address (defaults to wallet address)',

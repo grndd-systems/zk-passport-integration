@@ -98,11 +98,12 @@ function bigIntToBuffer(value: bigint, length: number): Buffer {
 }
 
 // Generate AA signature using raw RSA modexp
-function generateAASignature(challengeHex: string, dg15Data: Buffer): string {
+function generateAASignature(
+  challengeHex: string,
+  dg15Data: Buffer,
+  privateKeyPEM: string,
+): string {
   const challengeBuffer = Buffer.from(challengeHex.replace('0x', ''), 'hex');
-
-  const keyPath = path.join(process.cwd(), 'data', 'rsapss', 'key.pem');
-  const privateKeyPEM = fs.readFileSync(keyPath, 'utf8');
 
   // Extract the actual modulus from DG15
   const modulusBytes = extractModulusFromDG15(dg15Data.toString('base64'));
@@ -183,8 +184,17 @@ export async function updateAASignature() {
   const dg15Buffer = Buffer.from(passport.dg15, 'base64');
   console.log('DG15 length:', dg15Buffer.length, 'bytes');
 
+  // Load AA private key from passport (unique per passport)
+  if (!passport.aaPrivateKey) {
+    console.error('\n❌ ERROR: aaPrivateKey not found in passport data!');
+    console.error('   This passport was generated with old code that used CSCA key.');
+    console.error('   Please regenerate passport with: npm run generate-passport');
+    process.exit(1);
+  }
+
   console.log('\nGenerating AA signature with challenge:', challenge);
-  const newSignature = generateAASignature(challenge, dg15Buffer);
+  console.log('Using unique AA private key from passport data');
+  const newSignature = generateAASignature(challenge, dg15Buffer, passport.aaPrivateKey);
 
   // Verify the signature using contract logic
   const challengeBuffer = Buffer.from(challenge.replace('0x', ''), 'hex');

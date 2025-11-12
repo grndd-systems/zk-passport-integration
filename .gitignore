@@ -5,6 +5,6 @@ data/proof
 data/query-proof*
 data/sk_identity
 *.pem
-!mastelist.pem
+*.srl
 *.txt
 .env

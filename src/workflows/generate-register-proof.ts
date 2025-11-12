@@ -39,20 +39,24 @@ async function generateRegisterIdentityProof(passportPath: string) {
   const { inputs, compile_params, circuit_name } = preparePassportInputs(passportData);
   console.log('Circuit name:', circuit_name);
 
-  console.log('Extracting certificate from passport SOD...');
-  const certificate = extractCertificateFromSOD(sodBuffer);
+  console.log('Extracting DSC certificate from passport SOD (index 0)...');
+  // Extract DSC certificate (first certificate, index 0)
+  // SOD contains: [0] DSC certificate (registered in PoseidonSMT)
+  // The DSC is what we registered in the contract, not the CSCA
+  const certificate = extractCertificateFromSOD(sodBuffer, 0);
 
-  console.log('Computing certificate key from extracted certificate (using Poseidon hash)...');
+  console.log('Computing certificate key from extracted DSC certificate (using Poseidon hash)...');
   const certificateKey = await computeCertificateKey(certificate);
   const pk_hash = BigInt(certificateKey);
+  console.log('DSC certificate key:', certificateKey);
 
-  // Get ICAO root from certificates SMT contract (this is the correct Poseidon root)
-  console.log('Getting ICAO root from certificates SMT...');
+  // Get certificates root from PoseidonSMT contract
+  console.log('Getting certificates root from PoseidonSMT...');
   const icao_root = await getCertificatesRoot();
-  console.log('ICAO root from contract:', icao_root);
+  console.log('Certificates root from contract:', icao_root);
 
-  // Get Poseidon SMT siblings from contract for this certificate
-  console.log('Getting Poseidon SMT proof from contract...');
+  // Get Poseidon SMT siblings from contract for this DSC certificate
+  console.log('Getting Poseidon SMT proof from contract for DSC...');
   const contractProof = await getProofFromContract(certificateKey);
 
   // Use Poseidon SMT siblings directly (they are already in the correct format)

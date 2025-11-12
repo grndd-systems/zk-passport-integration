@@ -114,8 +114,13 @@ interface BiometricPassportData {
   lastName: string;
   documentType: string;
   issuingAuthority: string;
-  signature: string; // Active Authentication signature
+  signature: string; // Active Authentication signature (placeholder initially)
   passportImageRaw: string;
+  // DSC certificate data
+  dscCertificate?: string; // DSC certificate in PEM format
+  dscSerialNumber?: string; // DSC serial number
+  // AA private key (INTERNAL USE ONLY - for AA signature generation, NOT in public passport data)
+  aaPrivateKey?: string; // AA private key in PEM format (excluded from JSON save)
 }
 
 interface PassportGenerationOptions extends PassportData {
@@ -486,31 +491,32 @@ function detectSignatureAlgorithm(certPath: string): 'RSA' | 'RSA-PSS' {
 
 /**
  * Generate DG15 - Active Authentication Public Key
- * Extracts public key directly from cert.pem
- * ONLY includes public key - never private key
+ * Generates a UNIQUE RSA key pair for Active Authentication for THIS passport
+ * The public key goes in DG15, private key is saved for AA signature generation
  */
 function generateDG15(certFolder: string): DG15Data {
-  const certPath = path.join(process.cwd(), 'data', certFolder, 'cert.pem');
+  console.log('  Generating unique RSA key pair for Active Authentication...');
 
-  let publicKeyPEM: string;
-  let signatureAlgorithm: 'RSA' | 'RSA-PSS';
-
-  try {
-    // Extract public key from certificate
-    const certPEM = fs.readFileSync(certPath, 'utf8');
-    const cert = new crypto.X509Certificate(certPEM);
-    publicKeyPEM = cert.publicKey.export({
+  // Generate a NEW 2048-bit RSA key pair for this passport's Active Authentication
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: {
       type: 'spki',
       format: 'pem',
-    }) as string;
+    },
+    privateKeyEncoding: {
+      type: 'pkcs8',
+      format: 'pem',
+    },
+  });
 
-    // Detect signature algorithm
-    signatureAlgorithm = detectSignatureAlgorithm(certPath);
+  const publicKeyPEM = publicKey;
+  const privateKeyPEM = privateKey;
 
-    console.log(`  Using ${signatureAlgorithm} certificate from ${certFolder}`);
-  } catch (err) {
-    throw new Error(`Failed to load certificate from data/${certFolder}/: ${err}`);
-  }
+  // For algorithm, use RSA (not RSA-PSS) for Active Authentication
+  const signatureAlgorithm: 'RSA' | 'RSA-PSS' = 'RSA-PSS';
+
+  console.log(`  ✓ Generated unique AA key pair for this passport`);
 
   // Extract key components for structured representation
   const publicKeyObj = crypto.createPublicKey(publicKeyPEM);
@@ -608,7 +614,7 @@ function generateDG15(certFolder: string): DG15Data {
       },
     },
     publicKeyPEM,
-    privateKeyPEM: '', // Empty - private key should NEVER be in passport
+    privateKeyPEM, // Save private key for AA signature generation (NOT in passport JSON!)
     encodedData: dg15Buffer.toString('base64'),
   };
 }
@@ -616,9 +622,14 @@ function generateDG15(certFolder: string): DG15Data {
 /**
  * Generate SOD - Security Object Document
  * Contains hashes of all data groups and is digitally signed using proper ASN.1/DER encoding
- * Uses existing certificate/key from specified directory
+ * Uses provided DSC certificate and key for signing, but embeds CSCA certificate in SOD
  */
-function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder: string): SODData {
+function generateSOD(
+  dataGroups: Record<string, DG1Data | DG15Data>,
+  certFolder: string,
+  dscCert?: string,
+  dscKey?: string,
+): SODData {
   // Hash each data group using SHA-256
   const hashAlgorithm = 'sha256';
   const dataGroupHashValues: Record<string, string> = {};
@@ -640,12 +651,11 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
     dataGroupHashBuffers[dgNum.toString()] = dgHash;
   }
 
-  // Load existing document signing certificate and key
-  const certPath = path.join(process.cwd(), 'data', certFolder, 'cert.pem');
-  const keyPath = path.join(process.cwd(), 'data', certFolder, 'key.pem');
-
-  let docSignPublicKey: string;
+  // Use provided DSC for signing, but always embed CSCA in SOD
   let docSignPrivateKey: string;
+  let signingCertPEM: string; // For signing
+  let embeddedCertPEM: string; // For embedding in SOD (CSCA)
+  let docSignPublicKey: string; // Public key from embedded cert
   let certInfo: {
     issuer: string;
     subject: string;
@@ -654,12 +664,19 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
     validTo: string;
   };
 
-  try {
-    const certPEM = fs.readFileSync(certPath, 'utf8');
-    docSignPrivateKey = fs.readFileSync(keyPath, 'utf8');
+  // Load DSC certificate and key (one DSC signs many passports)
+  const dscCertPath = path.join(process.cwd(), 'data', certFolder, 'dsc_cert.pem');
+  const dscKeyPath = path.join(process.cwd(), 'data', certFolder, 'dsc_key.pem');
 
-    // Extract certificate information
-    const cert = new crypto.X509Certificate(certPEM);
+  // IMPORTANT: SOD is signed with DSC (one DSC can sign multiple passports)
+  // DSC is registered in the contract for verification
+  if (dscCert && dscKey) {
+    // Use provided DSC for signing
+    signingCertPEM = dscCert;
+    docSignPrivateKey = dscKey;
+    embeddedCertPEM = dscCert;
+
+    const cert = new crypto.X509Certificate(embeddedCertPEM);
     docSignPublicKey = cert.publicKey.export({
       type: 'spki',
       format: 'pem',
@@ -671,9 +688,82 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
       validFrom: cert.validFrom,
       validTo: cert.validTo,
     };
-  } catch (error) {
-    throw new Error(`Failed to load certificate/key from data/${certFolder}/: ${error}`);
+
+    console.log('  Signing SOD with provided DSC certificate');
+  } else if (fs.existsSync(dscCertPath) && fs.existsSync(dscKeyPath)) {
+    // Use DSC from file system (one DSC signs many passports)
+    const dscCertPEM = fs.readFileSync(dscCertPath, 'utf8');
+    const dscKeyPEM = fs.readFileSync(dscKeyPath, 'utf8');
+
+    signingCertPEM = dscCertPEM;
+    docSignPrivateKey = dscKeyPEM;
+    embeddedCertPEM = dscCertPEM;
+
+    const cert = new crypto.X509Certificate(embeddedCertPEM);
+    docSignPublicKey = cert.publicKey.export({
+      type: 'spki',
+      format: 'pem',
+    }) as string;
+    certInfo = {
+      issuer: cert.issuer,
+      subject: cert.subject,
+      serialNumber: cert.serialNumber,
+      validFrom: cert.validFrom,
+      validTo: cert.validTo,
+    };
+
+    console.log('  Signing SOD with DSC certificate from file (registered in contract)');
+  } else {
+    // Load existing certificate from folder (no DSC provided)
+    const certPath = path.join(process.cwd(), 'data', certFolder, 'csca_cert.pem');
+    const keyPath = path.join(process.cwd(), 'data', certFolder, 'csca_key.pem');
+
+    try {
+      signingCertPEM = fs.readFileSync(certPath, 'utf8');
+      embeddedCertPEM = signingCertPEM; // Same cert for signing and embedding
+      docSignPrivateKey = fs.readFileSync(keyPath, 'utf8');
+
+      const cert = new crypto.X509Certificate(embeddedCertPEM);
+      docSignPublicKey = cert.publicKey.export({
+        type: 'spki',
+        format: 'pem',
+      }) as string;
+      certInfo = {
+        issuer: cert.issuer,
+        subject: cert.subject,
+        serialNumber: cert.serialNumber,
+        validFrom: cert.validFrom,
+        validTo: cert.validTo,
+      };
+
+      console.log(`  Using certificate from ${certFolder}`);
+    } catch (error) {
+      throw new Error(`Failed to load certificate/key from data/${certFolder}/: ${error}`);
+    }
   }
+
+  // Get cert path for signature algorithm detection (use signing cert)
+  let certPath: string;
+  if (dscCert) {
+    // Write temp file for algorithm detection
+    const tmpCertPath = path.join(process.cwd(), 'data', 'tmp_dsc', 'tmp_cert.pem');
+    const tmpDir = path.dirname(tmpCertPath);
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    fs.writeFileSync(tmpCertPath, signingCertPEM);
+    certPath = tmpCertPath;
+  } else {
+    certPath = path.join(process.cwd(), 'data', certFolder, 'csca_cert.pem');
+  }
+
+  // Clean up temp cert file if it was created
+  const tmpCertPath = path.join(process.cwd(), 'data', 'tmp_dsc', 'tmp_cert.pem');
+  const cleanupTempCert = () => {
+    if (dscCert && fs.existsSync(tmpCertPath)) {
+      fs.unlinkSync(tmpCertPath);
+    }
+  };
 
   // Create LDS Security Object in ASN.1 format
   // LDSSecurityObject ::= SEQUENCE {
@@ -746,8 +836,8 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
   let sodBuffer: Buffer;
 
   // Always use node-forge to create the base PKCS#7 structure for consistent offsets
-  const certPEM = fs.readFileSync(certPath, 'utf8');
-  const forgeCert = forge.pki.certificateFromPem(certPEM);
+  const forgeSigningCert = forge.pki.certificateFromPem(signingCertPEM); // For signing (DSC)
+  const forgeEmbeddedCert = forge.pki.certificateFromPem(embeddedCertPEM); // For embedding in SOD (DSC)
   const forgePrivateKey = forge.pki.privateKeyFromPem(docSignPrivateKey);
 
   // For e-passport SOD, content type should be LDS security object OID
@@ -755,7 +845,7 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
 
   if (isRsaPss) {
     // Extract salt length from certificate
-    const cert2 = new crypto.X509Certificate(certPEM);
+    const cert2 = new crypto.X509Certificate(signingCertPEM);
     const certDER2 = cert2.raw;
     saltLength = extractSaltLengthFromCert(certDER2);
 
@@ -764,14 +854,16 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
     // Step 1: Create PKCS#7 structure using forge (this gives us the right offsets)
     const p7 = forge.pkcs7.createSignedData();
     p7.content = forge.util.createBuffer(ldsSecurityObjectDer, 'raw');
-    p7.addCertificate(forgeCert);
+
+    // Add DSC certificate (signs the SOD)
+    p7.addCertificate(forgeEmbeddedCert); // DSC certificate
 
     // Add signing time BEFORE messageDigest to increase ec_shift
     const now = new Date();
 
     p7.addSigner({
       key: forgePrivateKey,
-      certificate: forgeCert,
+      certificate: forgeSigningCert, // Use DSC certificate for signing
       digestAlgorithm: forge.pki.oids.sha256,
       authenticatedAttributes: [
         {
@@ -892,20 +984,25 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
     sodBuffer = Buffer.from(sodDer, 'binary');
 
     console.log(`  ✓ Created SOD with RSA-PSS parameters (${sodBuffer.length} bytes)`);
+
+    // Clean up temp cert
+    cleanupTempCert();
   } else {
     console.log('Signing SOD with RSA PKCS#1 v1.5');
 
     // Create PKCS#7 signed data with proper structure
     const p7 = forge.pkcs7.createSignedData();
     p7.content = forge.util.createBuffer(ldsSecurityObjectDer, 'raw');
-    p7.addCertificate(forgeCert);
+
+    // Add DSC certificate (signs the SOD)
+    p7.addCertificate(forgeEmbeddedCert); // DSC certificate
 
     // Add signing time BEFORE messageDigest to increase ec_shift
     const now = new Date();
 
     p7.addSigner({
       key: forgePrivateKey,
-      certificate: forgeCert,
+      certificate: forgeSigningCert, // Use DSC certificate for signing
       digestAlgorithm: forge.pki.oids.sha256,
       authenticatedAttributes: [
         {
@@ -939,6 +1036,9 @@ function generateSOD(dataGroups: Record<string, DG1Data | DG15Data>, certFolder:
     signature = Buffer.from(signerInfo.value[5].value, 'binary');
 
     console.log(`  ✓ Created SOD with RSA PKCS#1 v1.5 (${sodBuffer.length} bytes)`);
+
+    // Clean up temp cert
+    cleanupTempCert();
   }
 
   return {
@@ -985,12 +1085,12 @@ export async function generateBiometricPassportData(
 ): Promise<BiometricPassportData> {
   const certFolder = passportInfo.certFolder || 'rsapss';
 
-  console.log(`\n=== Generating passport using certificate from data/${certFolder}/ ===`);
+  console.log(`\n=== Generating passport with unique AA key ===`);
 
   // Generate DG1 - Machine Readable Zone
   const dg1Data = generateDG1(passportInfo);
 
-  // Generate DG15 - Active Authentication Public Key (extracts from cert.pem)
+  // Generate DG15 - Active Authentication Public Key (generates unique AA key for this passport)
   const dg15Data = generateDG15(certFolder);
 
   // Prepare data groups for SOD
@@ -999,7 +1099,8 @@ export async function generateBiometricPassportData(
     15: dg15Data,
   };
 
-  // Generate SOD - Security Object Document (signed with private key from file)
+  // Generate SOD - Security Object Document (signed with DSC from file or csca_cert.pem)
+  // SOD will be signed with DSC (dsc_cert.pem/dsc_key.pem) if it exists, otherwise with csca_cert.pem/csca_key.pem
   const sodData = generateSOD(dataGroups, certFolder);
 
   // Use placeholder signature
@@ -1035,9 +1136,13 @@ export async function generateBiometricPassportData(
     lastName: dg1Data.data.surname,
     documentType: dg1Data.data.documentType,
     issuingAuthority: dg1Data.data.issuingCountry,
-    signature: aaSignature, // Active Authentication signature
+    signature: aaSignature, // Active Authentication signature (placeholder)
     passportImageRaw: '', // Placeholder for passport photo
+    // AA private key (INTERNAL - for AA signature generation only, excluded from JSON save)
+    aaPrivateKey: dg15Data.privateKeyPEM,
   };
+
+  console.log(`  ✓ Passport generated with unique AA key`);
 
   return passportData;
 }

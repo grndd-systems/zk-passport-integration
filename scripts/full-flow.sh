@@ -24,13 +24,16 @@ print_step() {
   STEP=$((STEP + 1))
 }
 
-print_step "Generate RSA-PSS Certificate"
-bash scripts/generate-cert-rsapss.sh
+print_step "Generate CSCA Certificate (Root CA, goes to masterlist)"
+bash scripts/generate-csca-rsapss.sh
 
-print_step "Update ICAO Master Tree Root on Blockchain"
+print_step "Generate DSC Certificate (signed by CSCA)"
+bash scripts/generate-dsc-rsapss.sh
+
+print_step "Update ICAO Root on Blockchain (from CSCA masterlist)"
 npm run setup
 
-print_step "Register Certificate in PoseidonSMT"
+print_step "Register DSC in PoseidonSMT (prove DSC signed by CSCA)"
 npm run register-cert-rsapss
 
 print_step "Generate Biometric Passport Data"
@@ -51,17 +54,26 @@ echo -e "${GREEN}║     ✅ FULL FLOW COMPLETED SUCCESSFULLY!                  
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "Summary of completed steps:"
-echo "  1. ✅ Generated RSA-PSS certificate"
-echo "  2. ✅ Updated ICAO root on blockchain"
-echo "  3. ✅ Registered certificate in PoseidonSMT"
-echo "  4. ✅ Generated biometric passport data"
-echo "  5. ✅ Generated ZK proof"
-echo "  6. ✅ Updated AA signature"
-echo "  7. ✅ Registered passport on blockchain"
+echo "  1. ✅ Generated CSCA certificate (root CA, added to masterlist)"
+echo "  2. ✅ Generated DSC certificate (signed by CSCA)"
+echo "  3. ✅ Updated ICAO root on blockchain (from CSCA masterlist)"
+echo "  4. ✅ Registered DSC in PoseidonSMT (proved DSC signed by CSCA)"
+echo "  5. ✅ Generated biometric passport data (with unique AA key)"
+echo "  6. ✅ Generated ZK proof"
+echo "  7. ✅ Updated AA signature"
+echo "  8. ✅ Registered passport on blockchain"
 echo ""
 echo "Files created:"
-echo "  - Certificate: data/out_cert/cert.pem"
+echo "  - CSCA cert: data/rsapss/csca_cert.pem (in masterlist.pem)"
+echo "  - DSC cert: data/rsapss/dsc_cert.pem (registered in PoseidonSMT)"
 echo "  - Passport: data/out_passport/passport_*.json"
 echo "  - Proof: data/circuit/proof"
 echo "  - Public inputs: data/circuit/public-inputs"
+echo ""
+echo "Architecture:"
+echo "  - CSCA (in masterlist.pem) → ICAO root on blockchain"
+echo "  - CSCA signs DSC → DSC registered in PoseidonSMT"
+echo "  - DSC signs SOD for each passport"
+echo "  - Each passport has unique AA key in DG15"
+echo "  - One DSC can sign multiple passports"
 echo ""

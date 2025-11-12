@@ -17,7 +17,7 @@ export async function setupICAORoot(folderName: string = 'rsapss') {
   const binaryPath = path.join(currentDir, '../../icao-root');
   const dataDir = path.join(currentDir, `../../data/${folderName}`);
   const masterlist = path.join(dataDir, 'masterlist.pem');
-  const cert = path.join(dataDir, 'cert.pem');
+  const cert = path.join(dataDir, 'csca_cert.pem'); // CSCA certificate
   const merkle_output = path.join(dataDir, 'merkle_output.txt');
 
   // Execute the binary to generate merkle tree

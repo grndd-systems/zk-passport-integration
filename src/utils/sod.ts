@@ -24,8 +24,11 @@ function parseDERLength(buffer: Buffer, offset: number): { length: number; bytes
 /**
  * Extract certificate from SOD (Security Object Document) data
  * SOD structure: SEQUENCE -> [1] -> SEQUENCE (SignedData) -> [3] certificates [0]
+ *
+ * @param sodData - SOD data buffer
+ * @param certIndex - Certificate index (0 = DSC, 1 = CSCA, default 0)
  */
-export function extractCertificateFromSOD(sodData: Buffer): Buffer {
+export function extractCertificateFromSOD(sodData: Buffer, certIndex: number = 0): Buffer {
   let offset = 0;
 
   // Skip outer SEQUENCE
@@ -79,16 +82,40 @@ export function extractCertificateFromSOD(sodData: Buffer): Buffer {
   const certsLength = parseDERLength(sodData, offset);
   offset += certsLength.bytesRead;
 
-  // First certificate starts here (SEQUENCE)
-  const certStart = offset;
-  if (sodData[offset] !== 0x30) throw new Error('Invalid SOD: expected certificate SEQUENCE');
-  offset++;
-  const certLength = parseDERLength(sodData, offset);
-  offset += certLength.bytesRead;
+  // Skip to the requested certificate index
+  let currentIndex = 0;
+  let certStart = offset;
 
-  const certTotalLength = 1 + certLength.bytesRead + certLength.length;
-  const certificate = sodData.slice(certStart, certStart + certTotalLength);
+  while (currentIndex <= certIndex) {
+    certStart = offset;
 
-  console.log('Extracted certificate from SOD:', certificate.length, 'bytes');
-  return certificate;
+    if (sodData[offset] !== 0x30) {
+      throw new Error(
+        `Invalid SOD: expected certificate SEQUENCE at index ${currentIndex}, got 0x${sodData[offset].toString(16)}`,
+      );
+    }
+    offset++;
+    const certLength = parseDERLength(sodData, offset);
+    offset += certLength.bytesRead;
+
+    if (currentIndex === certIndex) {
+      // Found the requested certificate
+      const certTotalLength = 1 + certLength.bytesRead + certLength.length;
+      const certificate = sodData.slice(certStart, certStart + certTotalLength);
+
+      console.log(
+        `Extracted certificate ${certIndex} from SOD:`,
+        certificate.length,
+        'bytes',
+        certIndex === 0 ? '(DSC)' : certIndex === 1 ? '(CSCA)' : '',
+      );
+      return certificate;
+    }
+
+    // Skip to next certificate
+    offset += certLength.length;
+    currentIndex++;
+  }
+
+  throw new Error(`Certificate index ${certIndex} not found in SOD`);
 }

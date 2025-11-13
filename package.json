@@ -3,16 +3,13 @@
   "version": "0.1.0",
   "scripts": {
     "generate-passport": "node dist/index.js generate-passport",
-    "generate-proof": "node dist/index.js generate-proof",
     "update-aa-sig": "node dist/passport/generate-aa-signature.js",
     "setup": "node dist/index.js setup",
     "register-cert-rsa": "node dist/index.js register-certificate-rsa",
     "register-cert-rsapss": "node dist/index.js register-certificate-rsapss",
     "register-passport": "node dist/index.js register-passport",
     "generate-register-proof": "node dist/index.js generate-register-proof",
-    "generate-query-proof": "node dist/index.js generate-query-proof",
     "generate-query-proof-noir": "node dist/index.js generate-query-proof-noir",
-    "execute-query-proof": "node dist/index.js execute-query-proof",
     "execute-query-proof-noir": "node dist/index.js execute-query-proof-noir",
     "check-kyc-status": "node dist/index.js check-kyc-status"
   },

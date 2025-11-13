@@ -8,6 +8,7 @@ import {
   loadPkPassportHash,
   loadPkIdentityHash,
   encodePassportDate,
+  calculateMinExpirationDate,
 } from '../crypto/query-circuit-input';
 import { readSkIdentity } from '../utils/bjj-key';
 import { getProviderAndWallet, getQueryProofExecutorContract } from '../blockchain/eth';
@@ -16,9 +17,9 @@ import circuitData from '../../data/circuit/query_identity.json';
 const circuit = circuitData as unknown as CompiledCircuit;
 
 export interface GenerateNoirQueryProofParams {
-  requestId: string;
   userAddress: string;
   identityCreationTimestamp?: number;
+  minExpirationDate?: number;
 }
 
 /**
@@ -39,7 +40,7 @@ export async function generateNoirQueryProofFromContract(params: GenerateNoirQue
   const skIdentity = readSkIdentity();
 
   // User parameters
-  const { requestId, userAddress, identityCreationTimestamp = 0 } = params;
+  const { userAddress, identityCreationTimestamp = 0 } = params;
 
   // Get blockchain state
   const { provider, wallet } = getProviderAndWallet();
@@ -53,7 +54,7 @@ export async function generateNoirQueryProofFromContract(params: GenerateNoirQue
   const blockDate = new Date(block.timestamp * 1000);
   const currentDateEncoded = encodePassportDate(blockDate);
   const currentDateDecimal = BigInt(currentDateEncoded);
-
+  const minExpirationDate = calculateMinExpirationDate(blockDate, 6); // 6 months from current date
   console.log('Block timestamp:', block.timestamp);
   console.log('Block date:', blockDate.toISOString());
   console.log('Current Date (encoded):', currentDateEncoded);
@@ -65,14 +66,16 @@ export async function generateNoirQueryProofFromContract(params: GenerateNoirQue
 
   console.log('\nPassport hash:', passportHash);
   console.log('User address:', userAddress);
-  console.log('Request ID:', requestId);
+  console.log('Identity Creation Timestamp:', identityCreationTimestamp);
+  console.log('Min Expiration Date:', minExpirationDate);
 
   // Prepare userPayload for getPublicSignals call
+  // Format: (address user, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp, uint256 minExpirationDate)
   const nullifierPlaceholder = 0;
 
   const userPayload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'string', 'uint256', 'bytes32', 'uint256'],
-    [userAddress, requestId, nullifierPlaceholder, passportHash, identityCreationTimestamp],
+    ['address', 'uint256', 'bytes32', 'uint256', 'uint256'],
+    [userAddress, nullifierPlaceholder, passportHash, identityCreationTimestamp, minExpirationDate],
   );
 
   console.log('\n=== Calling contract.getPublicSignals ===');

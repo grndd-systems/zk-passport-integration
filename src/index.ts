@@ -86,63 +86,43 @@ async function main() {
   } else if (command === 'reissue-identity') {
     await reissuePassport();
   } else if (command === 'generate-query-proof') {
-    // Get requestId and userAddress from command line arguments
-    const requestId = process.argv[3];
-    const userAddress = process.argv[4];
+    // Get userAddress from command line argument
+    const userAddress = process.argv[3];
 
-    if (!requestId || !userAddress) {
-      console.error('Error: requestId and userAddress are required');
-      console.log('Usage: npm run generate-query-proof <requestId> <userAddress>');
+    if (!userAddress) {
+      console.error('Error: userAddress is required');
+      console.log('Usage: npm run generate-query-proof <userAddress>');
       process.exit(1);
     }
 
     await generateQueryProofFromContract({
-      requestId,
       userAddress,
     });
   } else if (command === 'generate-query-proof-noir') {
-    // Get requestId and userAddress from command line arguments
-    const requestId = process.argv[3];
-    const userAddress = process.argv[4];
+    // Get userAddress from command line argument
+    const userAddress = process.argv[3];
 
-    if (!requestId || !userAddress) {
-      console.error('Error: requestId and userAddress are required');
-      console.log('Usage: npm run generate-query-proof-noir <requestId> <userAddress>');
+    if (!userAddress) {
+      console.error('Error: userAddress is required');
+      console.log('Usage: npm run generate-query-proof-noir <userAddress>');
       process.exit(1);
     }
 
     await generateNoirQueryProofFromContract({
-      requestId,
       userAddress,
     });
   } else if (command === 'execute-query-proof') {
-    // Get requestId from command line argument
-    const requestId = process.argv[3];
-    if (!requestId) {
-      console.error('Error: requestId is required');
-      console.log('Usage: npm run execute-query-proof <requestId> [userAddress]');
-      process.exit(1);
-    }
-
-    const userAddress = process.argv[4]; // Optional
+    // Get optional userAddress from command line argument
+    const userAddress = process.argv[3]; // Optional
 
     await executeQueryProofWorkflow({
-      requestId,
       userAddress,
     });
   } else if (command === 'execute-query-proof-noir') {
-    // Get requestId from command line argument
-    const requestId = process.argv[3];
-    if (!requestId) {
-      console.error('Error: requestId is required');
-      console.log('Usage: npm run execute-query-proof-noir <requestId> [userAddress]');
-      process.exit(1);
-    }
-
-    const userAddress = process.argv[4]; // Optional
+    // Get optional userAddress from command line argument
+    const userAddress = process.argv[3]; // Optional
 
     await executeNoirQueryProofWorkflow({
-      requestId,
       userAddress,
     });
   } else if (command === 'check-kyc-status') {
@@ -174,16 +154,16 @@ async function main() {
       '  reissue-passport            - Reissue identity with new identityKey (BJJ key pair) for same passport',
     );
     console.log(
-      '  generate-query-proof <requestId> <userAddress> - Generate query proof (Circom/Groth16) using contract parameters',
+      '  generate-query-proof <userAddress> - Generate query proof (Circom/Groth16) using contract parameters',
     );
     console.log(
-      '  generate-query-proof-noir <requestId> <userAddress> - Generate query proof (Noir/UltraPlonk) using contract parameters',
+      '  generate-query-proof-noir <userAddress> - Generate query proof (Noir/UltraPlonk) using contract parameters',
     );
     console.log(
-      '  execute-query-proof <requestId> [userAddress] - Execute Circom query proof for KYC verification',
+      '  execute-query-proof [userAddress] - Execute Circom query proof for KYC verification',
     );
     console.log(
-      '  execute-query-proof-noir <requestId> [userAddress] - Execute Noir query proof for KYC verification',
+      '  execute-query-proof-noir [userAddress] - Execute Noir query proof for KYC verification',
     );
     console.log(
       '  check-kyc-status [address]  - Check KYC status for an address (defaults to wallet address)',

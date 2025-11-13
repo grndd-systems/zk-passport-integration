@@ -14,10 +14,10 @@ import { getProviderAndWallet } from '../blockchain/eth';
 export interface ExecuteQueryProofParams {
   // User parameters
   userAddress?: string; // If not provided, uses wallet address from env
-  requestId: string; // Request ID to execute
 
   // Identity parameters
   identityCreationTimestamp?: number; // Optional: timestamp restriction (0 = no restriction)
+  minExpirationDate?: number; // Optional: minimum passport expiration date (0 = no restriction)
 
   // Passport data (from registration)
   passportHash?: string; // If not provided, derives from registration proof
@@ -127,15 +127,16 @@ export async function executeQueryProofWorkflow(params: ExecuteQueryProofParams)
   const registrationRoot = params.registrationRoot || ethers.ZeroHash; // Usually 0 for now
   const currentDate = params.currentDate || (await getCurrentDateFromBlockchain(provider));
   const identityCreationTimestamp = params.identityCreationTimestamp || 0;
+  const minExpirationDate = params.minExpirationDate || 0;
 
   console.log('\n=== Execution Parameters ===');
-  console.log('Request ID:', params.requestId);
   console.log('User Address:', userAddress);
   console.log('Nullifier:', nullifier.toString());
   console.log('Passport Hash:', passportHash);
   console.log('Registration Root:', registrationRoot);
   console.log('Current Date:', currentDate);
   console.log('Identity Creation Timestamp:', identityCreationTimestamp);
+  console.log('Min Expiration Date:', minExpirationDate);
 
   // Step 6: Convert proof to Solidity format
   const zkPoints = convertProofToProofPoints(proof);
@@ -145,10 +146,10 @@ export async function executeQueryProofWorkflow(params: ExecuteQueryProofParams)
   const tx = await executeQueryProof(
     currentDate,
     userAddress,
-    params.requestId,
     nullifier,
     passportHash,
     identityCreationTimestamp,
+    minExpirationDate,
     zkPoints,
   );
 
@@ -165,7 +166,6 @@ export async function executeQueryProofWorkflow(params: ExecuteQueryProofParams)
   return {
     transactionHash: tx.hash,
     userAddress,
-    requestId: params.requestId,
     nullifier: nullifier.toString(),
     passportHash,
   };
@@ -185,7 +185,7 @@ export async function checkKYCStatus(address?: string) {
 
   const result = await getZKKYCStatus(userAddress);
 
-  if (result[0]) {
+  if (result.isVerified) {
     console.log('\n✅ Address is KYC verified');
   } else {
     console.log('\n❌ Address is not KYC verified');

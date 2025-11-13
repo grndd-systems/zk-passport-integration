@@ -5,6 +5,7 @@ import { executeQueryProofNoir, getZKKYCStatus } from '../blockchain/tx';
 import {
   loadRegistrationProofOutputs,
   getCurrentDateFromBlockchain,
+  calculateMinExpirationDate,
 } from '../crypto/query-circuit-input';
 import { getProviderAndWallet } from '../blockchain/eth';
 
@@ -14,10 +15,10 @@ import { getProviderAndWallet } from '../blockchain/eth';
 export interface ExecuteNoirQueryProofParams {
   // User parameters
   userAddress?: string; // If not provided, uses wallet address from env
-  requestId: string; // Request ID to execute
 
   // Identity parameters
   identityCreationTimestamp?: number; // Optional: timestamp restriction (0 = no restriction)
+  minExpirationDate?: number; // Optional: minimum passport expiration date (0 = no restriction)
 
   // Passport data (from registration)
   passportHash?: string; // If not provided, derives from registration proof
@@ -122,22 +123,30 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
   const userAddress = params.userAddress || wallet.address;
   console.log('✓ User address:', userAddress);
 
+  const block = await provider.getBlock('latest');
+  if (!block) {
+    throw new Error('Failed to get latest block');
+  }
+  const blockDate = new Date(block.timestamp * 1000);
+  
   // Step 5: Prepare parameters
   const currentDate = params.currentDate || (await getCurrentDateFromBlockchain(provider));
   const identityCreationTimestamp = params.identityCreationTimestamp || 0;
+  const minExpirationDate = calculateMinExpirationDate(blockDate, 6); // 6 months from current date
 
   console.log('\n=== Execution Parameters ===');
-  console.log('Request ID:', params.requestId);
   console.log('User Address:', userAddress);
   console.log('Nullifier:', nullifier.toString());
   console.log('Passport Hash:', passportHash);
   console.log('Current Date:', currentDate);
   console.log('Identity Creation Timestamp:', identityCreationTimestamp);
+  console.log('Min Expiration Date:', minExpirationDate);
 
   // Step 6: Prepare userPayload (ABI-encoded)
+  // Format: (address user, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp, uint256 minExpirationDate)
   const userPayload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'string', 'uint256', 'bytes32', 'uint256'],
-    [userAddress, params.requestId, nullifier, passportHash, identityCreationTimestamp],
+    ['address', 'uint256', 'bytes32', 'uint256', 'uint256'],
+    [userAddress, nullifier, passportHash, identityCreationTimestamp, minExpirationDate],
   );
 
   console.log('\n=== Executing Noir Query Proof ===');
@@ -156,7 +165,6 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
   return {
     transactionHash: tx.hash,
     userAddress,
-    requestId: params.requestId,
     nullifier: nullifier.toString(),
     passportHash,
   };

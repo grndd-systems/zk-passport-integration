@@ -255,6 +255,7 @@ export function decodePassportDate(hexDate: string): Date {
   return new Date(year, month, day);
 }
 
+const blacklistCountries = ["RUS", "USA", "CAN", "BLR", "CHN", "HKG", "MAC", "TWN", "PRK", "IRN", "CUB", "COG", "COD", "LBY", "SOM", "SSD", "SDN", "SYR", "YEM"];
 /**
  * Country codes in order as they appear in the circuit
  * This must match the COUNTRY_ARR in citizenshipCheck.circom
@@ -504,22 +505,16 @@ export const COUNTRY_ORDER = [
 
 /**
  * Calculate citizenship mask for blocked countries
- * The mask is a 240-bit number where each bit corresponds to a country
+ * The mask is a 238-bit number where each bit corresponds to a country
  * Bit = 1 means that country is BLOCKED
  */
 export function calculateCitizenshipMask(blockedCountries: string[]): bigint {
   let mask = 0n;
 
-  for (const country of blockedCountries) {
-    const index = COUNTRY_ORDER.indexOf(country.toUpperCase());
-    if (index === -1) {
-      throw new Error(`Unknown country code: ${country}`);
+  for (let i = 0; i < COUNTRY_ORDER.length; i++) {
+    if (blockedCountries.includes(COUNTRY_ORDER[i])) {
+        mask |= (1n << BigInt(i));
     }
-
-    // Set the bit at position (240 - 1 - index)
-    // because of bit reversal in the circuit
-    const bitPosition = 240 - 1 - index;
-    mask |= 1n << BigInt(bitPosition);
   }
 
   return mask;
@@ -596,4 +591,11 @@ export function buildSelector(options: {
   if (options.verifyCitizenshipBlacklist) selector |= 1 << 17;
 
   return selector;
+}
+
+export function calculateMinExpirationDate(blockDate: Date, n: number): bigint {
+  const minExpiration = new Date(blockDate);
+  minExpiration.setMonth(minExpiration.getMonth() + n);
+  const encoded = encodePassportDate(minExpiration);
+  return BigInt(encoded);
 }

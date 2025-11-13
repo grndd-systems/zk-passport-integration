@@ -309,24 +309,24 @@ export type ProofPoints = {
  * This function calls the execute() function from AQueryProofExecutor.
  *
  * The userPayload structure is:
- * (address user, string requestId, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp)
+ * (address user, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp, uint256 minExpirationDate)
  *
  * @param currentDate - Current date in YYMMDD format (e.g., "251030" for Oct 30, 2025)
  * @param userAddress - Address of the user being verified
- * @param requestId - Request ID string
  * @param nullifier - Nullifier from the query proof
  * @param passportHash - Passport hash (DG15 hash)
  * @param identityCreationTimestamp - Timestamp of identity creation (0 for no restriction)
+ * @param minExpirationDate - Minimum passport expiration date (0 for no restriction)
  * @param zkPoints - Groth16 proof points
  * @returns Transaction object
  */
 export async function executeQueryProof(
   currentDate: BigNumberish,
   userAddress: string,
-  requestId: string,
   nullifier: BigNumberish,
   passportHash: BytesLike,
   identityCreationTimestamp: BigNumberish,
+  minExpirationDate: BigNumberish,
   zkPoints: ProofPoints,
 ) {
   const { wallet } = getProviderAndWallet();
@@ -334,19 +334,19 @@ export async function executeQueryProof(
   const ethers = await import('ethers');
 
   // Encode userPayload
-  // (address user, string requestId, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp)
+  // (address user, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp, uint256 minExpirationDate)
   const userPayload = ethers.ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'string', 'uint256', 'bytes32', 'uint256'],
-    [userAddress, requestId, nullifier, passportHash, identityCreationTimestamp],
+    ['address', 'uint256', 'bytes32', 'uint256', 'uint256'],
+    [userAddress, nullifier, passportHash, identityCreationTimestamp, minExpirationDate],
   );
 
   console.log('\n=== Executing Query Proof ===');
   console.log('currentDate:', currentDate.toString());
   console.log('userAddress:', userAddress);
-  console.log('requestId:', requestId);
   console.log('nullifier:', nullifier.toString());
   console.log('passportHash:', passportHash);
   console.log('identityCreationTimestamp:', identityCreationTimestamp.toString());
+  console.log('minExpirationDate:', minExpirationDate.toString());
   console.log('userPayload:', userPayload);
 
   const tx = await executorContract.execute(currentDate, userPayload, zkPoints, {
@@ -367,13 +367,11 @@ export async function executeQueryProof(
           data: log.data,
         });
         if (parsed && parsed.name === 'ZKKYCVerified') {
-          const requestIdEvent = parsed.args.celestialId || parsed.args.requestId;
           const userEvent = parsed.args.user;
           const nullifierEvent = parsed.args.nullifier;
           const timestamp = parsed.args.timestamp;
 
           console.log('\n=== QueryProofExecutor.ZKKYCVerified Event ===');
-          console.log('requestId:', requestIdEvent);
           console.log('user:', userEvent);
           console.log('nullifier:', nullifierEvent.toString());
           console.log('timestamp:', timestamp.toString());
@@ -394,7 +392,7 @@ export async function executeQueryProof(
  * Unlike executeQueryProof which uses Groth16 ProofPoints, this accepts raw proof bytes.
  *
  * @param currentDate - Current date in YYMMDD format (e.g., "251030" for Oct 30, 2025)
- * @param userPayload - ABI-encoded user data (address, requestId, nullifier, passportHash, timestamp)
+ * @param userPayload - ABI-encoded user data (address, nullifier, passportHash, identityCreationTimestamp, minExpirationDate)
  * @param zkPoints - UltraPlonk proof bytes (from Noir circuit)
  * @returns Transaction object
  */
@@ -429,13 +427,11 @@ export async function executeQueryProofNoir(
           data: log.data,
         });
         if (parsed && parsed.name === 'ZKKYCVerified') {
-          const requestIdEvent = parsed.args.celestialId || parsed.args.requestId;
           const userEvent = parsed.args.user;
           const nullifierEvent = parsed.args.nullifier;
           const timestamp = parsed.args.timestamp;
 
           console.log('\n=== QueryProofExecutor.ZKKYCVerified Event ===');
-          console.log('requestId:', requestIdEvent);
           console.log('user:', userEvent);
           console.log('nullifier:', nullifierEvent.toString());
           console.log('timestamp:', timestamp.toString());
@@ -459,19 +455,17 @@ export async function getZKKYCStatus(userAddress: string) {
   const { wallet } = getProviderAndWallet();
   const executorContract = getQueryProofExecutorContract(wallet);
 
-  const result = await executorContract.getZKKYCStatus(userAddress);
+  const [isVerified, data] = await executorContract.getZKKYCStatus(userAddress);
 
   console.log('\n=== ZK KYC Status ===');
   console.log('Address:', userAddress);
-  console.log('Is Verified:', result[0]);
-  if (result[0]) {
-    const requestId = result[1].celestialId || result[1].requestId;
-    console.log('Request ID:', requestId);
-    console.log('Nullifier:', result[1].nullifier.toString());
-    console.log('Passport Hash:', result[1].passportHash);
-    console.log('Identity Creation Timestamp:', result[1].identityCreationTimestamp.toString());
-    console.log('Verified At:', result[1].verifiedAt.toString());
+  console.log('Is Verified:', isVerified);
+  if (isVerified) {
+    console.log('Nullifier:', data.nullifier.toString());
+    console.log('Passport Hash:', data.passportHash);
+    console.log('Min Expiration Date:', data.minExpirationDate?.toString() || '0');
+    console.log('Verified At:', data.verifiedAt.toString());
   }
 
-  return result;
+  return { isVerified, data };
 }

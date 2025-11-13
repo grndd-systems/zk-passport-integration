@@ -1,6 +1,17 @@
 # Rarimo Passport ZK Verification
 
-A project for generating and verifying biometric passports using zero-knowledge proofs based on Noir circuits and Rarimo smart contracts.
+A complete implementation for generating and verifying biometric passports using zero-knowledge proofs with Noir circuits and Rarimo smart contracts.
+
+## Features
+
+- **Passport Generation**: Create test biometric passports with realistic data (DG1, DG15, SOD)
+- **ICAO PKI Integration**: Certificate management with Poseidon Sparse Merkle Tree
+- **ZK Proof Systems**: Support for both Noir/UltraPlonk and Circom/Groth16
+- **Registration Proofs**: Verify passport authenticity without revealing personal data
+- **Query Proofs**: Prove age, citizenship, and validity without exposing full passport
+- **KYC Verification**: On-chain identity verification with nullifier-based fraud prevention
+- **Identity Management**: Revoke and reissue identities with new cryptographic keys
+- **Full Automation**: End-to-end workflow scripts for rapid testing and deployment
 
 ## Architecture
 
@@ -14,32 +25,57 @@ A project for generating and verifying biometric passports using zero-knowledge 
 ### Project Structure
 
 ```
-rarimo-test/
+zk-passport-integration/
 ├── src/
 │   ├── blockchain/          # Smart contract interactions
 │   │   ├── contracts.ts     # Contract initialization
+│   │   ├── eth.ts          # Ethers provider and wallet setup
 │   │   └── tx.ts           # Transactions and contract calls
 │   ├── passport/           # Passport data generation
 │   │   ├── biometric-passport-generator.ts  # Main generator
 │   │   ├── dg15-generator.ts               # DG15 generation (public key)
 │   │   ├── generate-aa-signature.ts        # Active Authentication signature
 │   │   └── random-passport-data.ts         # Random personal data
+│   ├── crypto/             # Cryptographic utilities
+│   │   ├── certificate-key.ts      # Certificate key extraction
+│   │   ├── extract-from-cert.ts    # Certificate parsing
+│   │   ├── hash-packed.ts          # Hash utilities
+│   │   └── query-circuit-input.ts  # Query circuit input preparation
+│   ├── utils/              # Helper utilities
+│   │   ├── bjj-key.ts             # Baby Jubjub key management
+│   │   ├── file-loaders.ts        # File loading utilities
+│   │   └── sod.ts                 # SOD parsing
 │   ├── workflows/          # Main workflows
-│   │   ├── setup.ts                    # ICAO root initialization
-│   │   ├── register-certificate.ts     # Country certificate registration
-│   │   ├── register-passport.ts        # Passport registration via ZK proof
-│   │   └── generate-proof.ts          # ZK proof generation
+│   │   ├── setup.ts                              # ICAO root initialization
+│   │   ├── register-certificate.ts               # Certificate registration
+│   │   ├── generate-register-proof.ts            # Register ZK proof generation
+│   │   ├── register-passport.ts                  # Passport registration via ZK proof
+│   │   ├── generate-query-proof.ts               # Query proof (Circom/Groth16)
+│   │   ├── generate-query-proof-noir.ts          # Query proof (Noir/UltraPlonk)
+│   │   ├── generate-query-proof-from-contract.ts # Query proof from contract params
+│   │   ├── execute-query-proof.ts                # Execute Circom query proof
+│   │   ├── execute-query-proof-noir.ts           # Execute Noir query proof
+│   │   ├── revoke-passport.ts                    # Revoke passport identity
+│   │   └── reissue-identity.ts                   # Reissue identity with new key
 │   └── index.ts            # CLI entry point
 ├── data/
 │   ├── rsapss/             # RSA-PSS certificates and keys
-│   │   ├── masterlist.pem         # List of trusted certificates
-│   │   ├── cert_rsapss.pem        # Document Signer Certificate
+│   │   ├── masterlist.pem         # List of trusted CSCA certificates
+│   │   ├── cert_rsapss.pem        # Document Signer Certificate (DSC)
 │   │   ├── private_key.pem        # Private key for signing
 │   │   └── merkle_output.txt      # Merkle proof for certificate
-│   └── out_passport/       # Generated passports (JSON)
-├── circuits/               # Noir ZK circuits
-└── scripts/               # Helper scripts
-    └── full-flow.sh       # Full flow from setup to proof
+│   ├── circuit/            # Noir circuits and trusted setup
+│   │   ├── query_identity.json    # Query circuit (standard passports)
+│   │   ├── query_identity_td1.json # Query circuit (TD1 passports)
+│   │   ├── registerIdentity_*.json # Registration circuit
+│   │   ├── bn254_g1.dat           # Trusted setup G1 points
+│   │   └── bn254_g2.dat           # Trusted setup G2 points
+│   ├── abi/                # Smart contract ABIs
+│   ├── out_passport/       # Generated passports (JSON)
+│   ├── proof/              # Generated registration proofs
+│   ├── query-proof-noir/   # Generated Noir query proofs
+│   └── sk_identity         # Baby Jubjub secret key
+└── full-workflow.sh        # Complete workflow automation script
 ```
 
 ## How It Works
@@ -55,16 +91,37 @@ In our system:
 - The **tree root hash** is published to the `StateKeeper` smart contract
 - For each certificate, a **Merkle proof** (path from leaf to root) is generated
 
-### 2. Zero-Knowledge Proof
+### 2. Zero-Knowledge Proofs
 
-When a user wants to verify passport validity:
+The project supports two types of ZK proofs:
 
-1. Passport data groups (DG1, DG15) and SOD signature are fed to the Noir circuit
+#### Registration Proof (Noir/UltraPlonk)
+When registering a passport:
+
+1. Passport data groups (DG1, DG15) and SOD signature are fed to the Noir registration circuit
 2. The circuit verifies:
    - Digital signature of SOD from Document Signer Certificate
    - Data group hashes match signed values
    - Certificate belongs to ICAO Master Tree (via Merkle proof)
-3. ZK proof is generated and can be verified on-chain
+3. ZK proof is generated and verified on-chain
+4. Passport identity is registered in the smart contract
+
+#### Query Proof (Noir/UltraPlonk or Circom/Groth16)
+When proving attributes (age, citizenship, etc.) without revealing passport details:
+
+1. User generates a query proof using:
+   - Registered passport identity (from DG1)
+   - Query parameters from smart contract (date ranges, citizenship mask, etc.)
+   - Baby Jubjub secret key (sk_identity)
+2. The circuit verifies:
+   - User possesses valid passport data matching the registered identity
+   - Attributes meet the query requirements (e.g., age > 18, valid expiration)
+   - Generates a unique nullifier to prevent double-use
+3. ZK proof is submitted on-chain for KYC verification
+
+**Supported backends:**
+- **Noir/UltraPlonk** - Faster proof generation, larger proof size (~2KB)
+- **Circom/Groth16** - Slower proof generation, smaller proof size (~300B)
 
 ### 3. Passport Data Structure
 
@@ -74,12 +131,32 @@ A passport contains the following data groups:
 - **DG15** - Public key for Active Authentication
 - **SOD** (Security Object Document) - Digital signature of all data groups
 
+## Quick Start
+
+For a complete end-to-end workflow, use the automation script:
+
+```bash
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Setup environment (create .env file with PRIVATE_KEY and RPC_URL)
+cp .env.example .env
+# Edit .env with your values
+
+# Run complete workflow (setup → generate → register → query → verify)
+./full-workflow.sh
+```
+
 ## Step-by-Step Guide
 
 ### Step 1: Install Dependencies
 
 ```bash
 npm install
+npm run build
 ```
 
 ### Step 2: Environment Setup
@@ -224,45 +301,123 @@ This command:
 3. Calls `PassportVerifier.verify(proof, publicInputs)`
 4. If verification succeeds - passport is registered
 
-### Full Flow Automatically
+### Step 11: Generate Query Proof (Noir)
 
 ```bash
-# Executes all steps sequentially
-./scripts/full-flow.sh
+# Generate Noir query proof for KYC verification
+npm run generate-query-proof-noir <userAddress>
+
+# Example:
+npm run generate-query-proof-noir 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
 ```
+
+This command:
+
+1. Loads registered passport data (DG1, identity key)
+2. Fetches query parameters from smart contract (`getPublicSignals`)
+3. Generates Noir proof using UltraPlonk backend
+4. Saves proof to `data/query-proof-noir/`
+5. Verifies all public signals match contract expectations
+
+### Step 12: Execute Query Proof (Noir)
+
+```bash
+# Submit Noir query proof to contract for KYC verification
+npm run execute-query-proof-noir <userAddress>
+
+# Example:
+npm run execute-query-proof-noir 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+```
+
+This command:
+
+1. Loads generated Noir query proof
+2. Extracts nullifier from public signals
+3. Calls `QueryProofExecutor.executeNoir(currentDate, userPayload, proof)`
+4. Verifies the transaction and displays KYC status
+
+### Step 13: Check KYC Status
+
+```bash
+# Check KYC verification status for an address
+npm run check-kyc-status <address>
+
+# Check your own address (from .env)
+npm run check-kyc-status
+```
+
+### Full Workflow Automation
+
+```bash
+# Executes complete workflow: generate passport → register → query proof → execute
+./full-workflow.sh
+
+# Or with custom address:
+./full-workflow.sh 0xYourAddressHere
+```
+
+This script runs:
+1. `generate-passport` - Create test passport
+2. `generate-register-proof` - Generate registration proof
+3. `update-aa-sig` - Update Active Authentication signature
+4. `register-passport` - Register on blockchain
+5. `generate-query-proof-noir` - Generate Noir query proof
+6. `execute-query-proof-noir` - Submit proof and verify KYC
 
 ## CLI Commands
 
+### Setup and Registration
+
 ```bash
-# Show help
+# Show help with all available commands
 npm start
 
-# Initialize ICAO root
+# Initialize ICAO root on blockchain
 npm start setup
 
-# Register RSA-PSS certificate
+# Register RSA-PSS certificate with Merkle proof
 npm start register-certificate-rsapss
 
-# Generate test passport
+# Generate random biometric passport
 npm start generate-passport
 
-# Generate ZK proof for registration
+# Update Active Authentication signature for last passport
+npm start update-aa-sig
+
+# Generate ZK proof for passport registration
 npm start generate-register-proof
 
-# Generate query proof
-npm start generate-query-proof
-
-# Register passport via ZK proof
+# Register passport on blockchain via ZK proof
 npm start register-passport
+```
 
-# Revoke passport identity
+### Query Proofs (KYC Verification)
+
+```bash
+# Generate query proof using Noir/UltraPlonk (recommended)
+npm run generate-query-proof-noir <userAddress>
+
+# Execute Noir query proof and verify KYC
+npm run execute-query-proof-noir <userAddress>
+
+# Generate query proof using Circom/Groth16 (alternative)
+npm run generate-query-proof <userAddress>
+
+# Execute Circom query proof and verify KYC
+npm run execute-query-proof [userAddress]
+
+# Check KYC status for an address
+npm run check-kyc-status [address]
+```
+
+### Identity Management
+
+```bash
+# Revoke passport identity (invalidate registration)
 npm start revoke-passport
 
-# Reissue identity with new key
+# Reissue identity with new BJJ key (same passport)
 npm start reissue-identity
-
-# Update Active Authentication signature
-npm start update-aa-sig
 ```
 
 ## Passport Data Structure
@@ -297,12 +452,41 @@ File `data/out_passport/passport_*.json` contains:
 - Siblings: array of 80 elements (tree depth = 80)
 - Empty levels: `poseidon([0, 0, 1])`
 
-### Noir Circuit Inputs
+### ZK Proof Systems Comparison
+
+| Feature | Noir/UltraPlonk | Circom/Groth16 |
+|---------|----------------|----------------|
+| **Proof Generation** | ~5-10 seconds | ~30-60 seconds |
+| **Proof Size** | ~2KB | ~300 bytes |
+| **Verification Cost** | Higher gas | Lower gas |
+| **Trusted Setup** | Universal (reusable) | Circuit-specific |
+| **Use Case** | Fast iteration, testing | Production, cost-sensitive |
+
+### Noir Circuit Details
+
+#### Registration Circuit
+- **Purpose**: Verify passport authenticity and register identity
+- **Inputs**: DG1, DG15, SOD, DSC public key, Merkle proof, BJJ identity key
+- **Outputs**: Passport hash, identity hash, identity counter
+- **Backend**: UltraPlonk with BN254 curve
+- **Circuit file**: `data/circuit/registerIdentity_*.json`
+
+#### Query Circuit
+- **Purpose**: Prove passport attributes without revealing data
+- **Inputs**: DG1 (93 bytes), identity key, query parameters (date ranges, citizenship)
+- **Outputs**: Nullifier, event data, verification flags
+- **Variants**:
+  - `query_identity.json` - Standard TD3 passports (88 bytes MRZ)
+  - `query_identity_td1.json` - TD1 passports (90 bytes MRZ)
+- **Backend**: UltraPlonk with BN254 curve
+
+### Circuit Input Requirements
 
 - All inputs must be within Noir field modulus (~254 bits)
 - BigInt values are passed as strings
-- Arrays are passed as arrays of strings
+- Arrays are passed as arrays of numbers
 - Field names must exactly match circuit ABI
+- Date encoding: YYMMDD in hex converted to decimal (e.g., "251030" → 0x323531303330 → bigint)
 
 ### RSA-PSS Parameters
 
@@ -314,36 +498,97 @@ MGF: MGF1 with SHA-256
 Salt length: 32 bytes
 ```
 
+### Baby Jubjub Identity Key
+
+- Used for generating unique identity commitment
+- Generated once and stored in `data/sk_identity`
+- Public key hash becomes part of passport registration
+- Same key used for all query proofs from same identity
+- Generated using `BJJKeygen` binary
+
 ## Troubleshooting
 
 ### Input exceeds field modulus
 
-Value exceeds maximum for Noir field. Make sure:
+**Error**: Value exceeds maximum for Noir field
 
+**Solutions**:
 - Poseidon hash is used instead of SHA256 for Merkle tree
 - Values are converted to strings for large numbers
+- Date values are properly encoded as hex → decimal
 
 ### Merkle tree verification failure
 
-Check that:
+**Error**: Proof verification failed / Invalid Merkle proof
 
+**Check**:
 - ICAO root in contract matches root from `merkle_output.txt`
 - Certificate is actually in `masterlist.pem`
 - Siblings are correctly obtained from contract via `getProofFromContract()`
 
 ### Certificate signature invalid
 
-Make sure:
+**Error**: Invalid SOD signature / RSA verification failed
 
+**Make sure**:
 - `cert_rsapss.pem` is signed by one of the CAs from `masterlist.pem`
 - Private key matches public key in certificate
 - Correct algorithm is used (RSA-PSS, not RSA-PKCS1)
+- Salt length is 32 bytes
+
+### Query proof public signals mismatch
+
+**Error**: Public signals do not match contract expectations
+
+**Check**:
+- Circuit is using the latest version (`query_identity.json`)
+- Query parameters are fetched from contract via `getPublicSignals()`
+- Date encoding matches contract format (YYMMDD hex → decimal)
+- Passport data (DG1) has correct length (93 bytes for circuit)
+
+### Query proof execution fails
+
+**Error**: Transaction reverted / Proof verification failed on-chain
+
+**Verify**:
+- Passport is registered on-chain (`check-kyc-status`)
+- Query proof was generated with correct userAddress
+- Nullifier hasn't been used before (each proof generates unique nullifier)
+- Current date is within valid range
+- Passport hasn't expired
+
+### BJJKeygen not found
+
+**Error**: Cannot find BJJKeygen binary
+
+**Solution**:
+- Make sure `BJJKeygen` binary is in project root
+- Check execution permissions: `chmod +x BJJKeygen`
+- Binary should be compatible with your system (Linux/macOS)
+
+### Worker threads not exiting
+
+**Issue**: Node.js process hangs after proof generation
+
+**Explanation**: This is normal behavior - the process explicitly calls `process.exit(0)` after completion to terminate worker threads created by snarkjs/bb.js
 
 ## Links
 
-- [Noir Documentation](https://noir-lang.org/)
+### Documentation
+- [Noir Documentation](https://noir-lang.org/) - Noir programming language and circuits
+- [Aztec bb.js](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/ts) - UltraPlonk backend
+- [Rarimo Documentation](https://docs.rarimo.com/) - Rarimo protocol and smart contracts
 - [ICAO Doc 9303](https://www.icao.int/publications/pages/publication.aspx?docnum=9303) - Biometric passport specification
-- [Rarimo Documentation](https://docs.rarimo.com/)
+
+### Related Projects
+- [passport-zk-circuits-noir](https://github.com/grndd-systems/passport-zk-circuits-noir) - Noir circuits for passport verification
+- [Rarimo Core](https://github.com/rarimo/rarimo-core) - Rarimo blockchain protocol
+- [zkPassport](https://github.com/zk-passport) - ZK passport ecosystem
+
+### Standards
+- [RFC 3447](https://www.rfc-editor.org/rfc/rfc3447) - RSA-PSS specification
+- [Poseidon Hash](https://www.poseidon-hash.info/) - ZK-friendly hash function
+- [Baby Jubjub](https://eips.ethereum.org/EIPS/eip-2494) - Elliptic curve for ZK proofs
 
 ## License
 

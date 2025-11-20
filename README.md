@@ -96,6 +96,7 @@ In our system:
 The project supports two types of ZK proofs:
 
 #### Registration Proof (Noir/UltraPlonk)
+
 When registering a passport:
 
 1. Passport data groups (DG1, DG15) and SOD signature are fed to the Noir registration circuit
@@ -107,6 +108,7 @@ When registering a passport:
 4. Passport identity is registered in the smart contract
 
 #### Query Proof (Noir/UltraPlonk or Circom/Groth16)
+
 When proving attributes (age, citizenship, etc.) without revealing passport details:
 
 1. User generates a query proof using:
@@ -120,6 +122,7 @@ When proving attributes (age, citizenship, etc.) without revealing passport deta
 3. ZK proof is submitted on-chain for KYC verification
 
 **Supported backends:**
+
 - **Noir/UltraPlonk** - Faster proof generation, larger proof size (~2KB)
 - **Circom/Groth16** - Slower proof generation, smaller proof size (~300B)
 
@@ -282,10 +285,10 @@ This command:
    - `sk_identity` - private key for identity
    - `icao_root` - ICAO tree root
    - `inclusion_branches` - Merkle proof siblings
-6. Executes `noir.execute(inputs)` and generates witness
-7. Creates proof using `noir.generateProof(witness)`
-8. Verifies proof locally
-9. Saves proof to file
+7. Executes `noir.execute(inputs)` and generates witness
+8. Creates proof using `noir.generateProof(witness)`
+9. Verifies proof locally
+10. Saves proof to file
 
 ### Step 10: Register Passport in Contract
 
@@ -357,6 +360,7 @@ npm run check-kyc-status
 ```
 
 This script runs:
+
 1. `generate-passport` - Create test passport
 2. `generate-register-proof` - Generate registration proof
 3. `update-aa-sig` - Update Active Authentication signature
@@ -454,17 +458,18 @@ File `data/out_passport/passport_*.json` contains:
 
 ### ZK Proof Systems Comparison
 
-| Feature | Noir/UltraPlonk | Circom/Groth16 |
-|---------|----------------|----------------|
-| **Proof Generation** | ~5-10 seconds | ~30-60 seconds |
-| **Proof Size** | ~2KB | ~300 bytes |
-| **Verification Cost** | Higher gas | Lower gas |
-| **Trusted Setup** | Universal (reusable) | Circuit-specific |
-| **Use Case** | Fast iteration, testing | Production, cost-sensitive |
+| Feature               | Noir/UltraPlonk         | Circom/Groth16             |
+| --------------------- | ----------------------- | -------------------------- |
+| **Proof Generation**  | ~5-10 seconds           | ~30-60 seconds             |
+| **Proof Size**        | ~2KB                    | ~300 bytes                 |
+| **Verification Cost** | Higher gas              | Lower gas                  |
+| **Trusted Setup**     | Universal (reusable)    | Circuit-specific           |
+| **Use Case**          | Fast iteration, testing | Production, cost-sensitive |
 
 ### Noir Circuit Details
 
 #### Registration Circuit
+
 - **Purpose**: Verify passport authenticity and register identity
 - **Inputs**: DG1, DG15, SOD, DSC public key, Merkle proof, BJJ identity key
 - **Outputs**: Passport hash, identity hash, identity counter
@@ -472,6 +477,7 @@ File `data/out_passport/passport_*.json` contains:
 - **Circuit file**: `data/circuit/registerIdentity_*.json`
 
 #### Query Circuit
+
 - **Purpose**: Prove passport attributes without revealing data
 - **Inputs**: DG1 (93 bytes), identity key, query parameters (date ranges, citizenship)
 - **Outputs**: Nullifier, event data, verification flags
@@ -513,6 +519,7 @@ Salt length: 32 bytes
 **Error**: Value exceeds maximum for Noir field
 
 **Solutions**:
+
 - Poseidon hash is used instead of SHA256 for Merkle tree
 - Values are converted to strings for large numbers
 - Date values are properly encoded as hex → decimal
@@ -522,6 +529,7 @@ Salt length: 32 bytes
 **Error**: Proof verification failed / Invalid Merkle proof
 
 **Check**:
+
 - ICAO root in contract matches root from `merkle_output.txt`
 - Certificate is actually in `masterlist.pem`
 - Siblings are correctly obtained from contract via `getProofFromContract()`
@@ -531,6 +539,7 @@ Salt length: 32 bytes
 **Error**: Invalid SOD signature / RSA verification failed
 
 **Make sure**:
+
 - `cert_rsapss.pem` is signed by one of the CAs from `masterlist.pem`
 - Private key matches public key in certificate
 - Correct algorithm is used (RSA-PSS, not RSA-PKCS1)
@@ -541,6 +550,7 @@ Salt length: 32 bytes
 **Error**: Public signals do not match contract expectations
 
 **Check**:
+
 - Circuit is using the latest version (`query_identity.json`)
 - Query parameters are fetched from contract via `getPublicSignals()`
 - Date encoding matches contract format (YYMMDD hex → decimal)
@@ -551,6 +561,7 @@ Salt length: 32 bytes
 **Error**: Transaction reverted / Proof verification failed on-chain
 
 **Verify**:
+
 - Passport is registered on-chain (`check-kyc-status`)
 - Query proof was generated with correct userAddress
 - Nullifier hasn't been used before (each proof generates unique nullifier)
@@ -562,6 +573,7 @@ Salt length: 32 bytes
 **Error**: Cannot find BJJKeygen binary
 
 **Solution**:
+
 - Make sure `BJJKeygen` binary is in project root
 - Check execution permissions: `chmod +x BJJKeygen`
 - Binary should be compatible with your system (Linux/macOS)
@@ -575,17 +587,20 @@ Salt length: 32 bytes
 ## Links
 
 ### Documentation
+
 - [Noir Documentation](https://noir-lang.org/) - Noir programming language and circuits
 - [Aztec bb.js](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg/ts) - UltraPlonk backend
 - [Rarimo Documentation](https://docs.rarimo.com/) - Rarimo protocol and smart contracts
 - [ICAO Doc 9303](https://www.icao.int/publications/pages/publication.aspx?docnum=9303) - Biometric passport specification
 
 ### Related Projects
+
 - [passport-zk-circuits-noir](https://github.com/grndd-systems/passport-zk-circuits-noir) - Noir circuits for passport verification
 - [Rarimo Core](https://github.com/rarimo/rarimo-core) - Rarimo blockchain protocol
 - [zkPassport](https://github.com/zk-passport) - ZK passport ecosystem
 
 ### Standards
+
 - [RFC 3447](https://www.rfc-editor.org/rfc/rfc3447) - RSA-PSS specification
 - [Poseidon Hash](https://www.poseidon-hash.info/) - ZK-friendly hash function
 - [Baby Jubjub](https://eips.ethereum.org/EIPS/eip-2494) - Elliptic curve for ZK proofs

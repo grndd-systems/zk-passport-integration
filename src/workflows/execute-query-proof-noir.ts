@@ -22,6 +22,7 @@ export interface ExecuteNoirQueryProofParams {
 
   // Passport data (from registration)
   passportHash?: string; // If not provided, derives from registration proof
+  sessionKey?: string; // Session key (identityKey) - if not provided, derives from registration proof
 
   // Query proof (from generate-query-proof-noir)
   queryProofPath?: string; // Path to query proof binary (default: data/query-proof-noir/query_proof)
@@ -29,7 +30,7 @@ export interface ExecuteNoirQueryProofParams {
 
   // Date parameter
   currentDate?: bigint; // Current date in hex ASCII format converted to decimal (e.g., 0x323531303330 = 55204039897904), auto-calculated if not provided
-};
+}
 
 /**
  * Extract nullifier from query proof public signals
@@ -86,8 +87,7 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
   const queryProofPath =
     params.queryProofPath || path.join(process.cwd(), 'data', 'query-proof-noir', 'query_proof');
   const queryPublicPath =
-    params.queryPublicPath ||
-    path.join(process.cwd(), 'data', 'query-proof-noir', 'public-inputs');
+    params.queryPublicPath || path.join(process.cwd(), 'data', 'query-proof-noir', 'public-inputs');
 
   if (!fs.existsSync(queryProofPath)) {
     throw new Error(
@@ -114,11 +114,20 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
   const nullifier = extractNullifier(publicSignals);
   console.log('✓ Extracted nullifier:', nullifier.toString());
 
-  // Step 3: Derive or use provided passport hash
+  // Step 3: Derive or use provided session key
+  const sessionKey =
+    params.sessionKey ||
+    (() => {
+      const { identityKey } = loadRegistrationProofOutputs();
+      return ethers.toBeHex(identityKey, 32);
+    })();
+  console.log('✓ Session key:', sessionKey);
+
+  // Step 4: Derive or use provided passport hash
   const passportHash = params.passportHash || derivePassportHashFromRegistration();
   console.log('✓ Passport hash:', passportHash);
 
-  // Step 4: Determine user address
+  // Step 5: Determine user address
   const { wallet, provider } = getProviderAndWallet();
   const userAddress = params.userAddress || wallet.address;
   console.log('✓ User address:', userAddress);
@@ -128,25 +137,28 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
     throw new Error('Failed to get latest block');
   }
   const blockDate = new Date(block.timestamp * 1000);
-  
-  // Step 5: Prepare parameters
+
+  // Step 6: Prepare parameters
   const currentDate = params.currentDate || (await getCurrentDateFromBlockchain(provider));
-  const identityCreationTimestamp = params.identityCreationTimestamp || 0;
   const minExpirationDate = calculateMinExpirationDate(blockDate, 6); // 6 months from current date
 
   console.log('\n=== Execution Parameters ===');
   console.log('User Address:', userAddress);
-  console.log('Nullifier:', nullifier.toString());
+  console.log('Session Key:', sessionKey);
   console.log('Passport Hash:', passportHash);
   console.log('Current Date:', currentDate);
-  console.log('Identity Creation Timestamp:', identityCreationTimestamp);
   console.log('Min Expiration Date:', minExpirationDate);
 
-  // Step 6: Prepare userPayload (ABI-encoded)
-  // Format: (address user, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp, uint256 minExpirationDate)
+  // Step 7: Prepare userPayload (ABI-encoded)
+  // Format: (address user, bytes32 sessionKey, bytes32 passportHash, uint256 minExpirationDate)
   const userPayload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'uint256', 'bytes32', 'uint256', 'uint256'],
-    [userAddress, nullifier, passportHash, identityCreationTimestamp, minExpirationDate],
+    ['address',  'bytes32', 'bytes32', 'uint256'],
+    [
+      userAddress,
+      sessionKey,
+      passportHash,
+      minExpirationDate,
+    ],
   );
 
   console.log('\n=== Executing Noir Query Proof ===');
@@ -155,7 +167,7 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
   console.log('\n✅ Noir query proof executed successfully!');
   console.log('Transaction hash:', tx.hash);
 
-  // Step 7: Verify the result
+  // Step 8: Verify the result
   console.log('\n=== Checking KYC Status ===');
   await getZKKYCStatus(userAddress);
 

@@ -1,8 +1,12 @@
 import { setupICAORoot } from './workflows/setup';
 import { registerCert as registerCert } from './workflows/register-certificate';
 import { registerPassport } from './workflows/register-passport';
-import { revokePassportIdentity } from './workflows/revoke-passport';
-import { reissuePassport } from './workflows/reissue-identity';
+import {
+  revokeSingleSession,
+  revokeAllPassportSessions,
+  revokeOtherPassportSessions,
+} from './workflows/revoke-passport';
+import { revokeUserKYC, revokeAllUserKYC, revokeSelfKYC } from './workflows/revoke-kyc';
 import { generateBiometricPassportData } from './passport/biometric-passport-generator';
 import { generateRegisterIdentityProof } from './workflows/generate-register-proof';
 import { updateAASignature } from './passport/generate-aa-signature';
@@ -11,6 +15,7 @@ import { executeQueryProofWorkflow, checkKYCStatus } from './workflows/execute-q
 import { generateQueryProofFromContract } from './workflows/generate-query-proof-from-contract';
 import { generateNoirQueryProofFromContract } from './workflows/generate-query-proof-noir';
 import { executeNoirQueryProofWorkflow } from './workflows/execute-query-proof-noir';
+import { checkPassportInfoFromProof } from './workflows/check-passport-info';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -82,9 +87,35 @@ async function main() {
   } else if (command === 'update-aa-sig') {
     await updateAASignature();
   } else if (command === 'revoke-passport') {
-    await revokePassportIdentity();
-  } else if (command === 'reissue-identity') {
-    await reissuePassport();
+    console.log('Mode: Revoke ALL sessions for passport\n');
+    await revokeAllPassportSessions();
+  } else if (command === 'revoke-other-sessions') {
+    console.log('Mode: Revoke all sessions EXCEPT current one\n');
+    await revokeOtherPassportSessions();
+  } else if (command === 'revoke-session') {
+    await revokeSingleSession();
+  } else if (command === 'revoke-kyc') {
+    // Get optional parameters
+    const userAddress = process.argv[3];
+    const passportHash = process.argv[4];
+
+    if (!userAddress) {
+      console.error('Error: userAddress is required');
+      console.log('Usage: npm run revoke-kyc <userAddress> [passportHash]');
+      console.log('  If passportHash is not provided, all KYC for the user will be revoked');
+      process.exit(1);
+    }
+
+    if (passportHash) {
+      console.log('Mode: Revoke specific passport KYC\n');
+      await revokeUserKYC(userAddress, passportHash);
+    } else {
+      console.log('Mode: Revoke ALL KYC for user\n');
+      await revokeAllUserKYC(userAddress);
+    }
+  } else if (command === 'revoke-self-kyc') {
+    const passportHash = process.argv[3]; // Optional
+    await revokeSelfKYC(passportHash);
   } else if (command === 'generate-query-proof') {
     // Get userAddress from command line argument
     const userAddress = process.argv[3];
@@ -128,46 +159,48 @@ async function main() {
   } else if (command === 'check-kyc-status') {
     const address = process.argv[3]; // Optional
     await checkKYCStatus(address);
+  } else if (command === 'check-passport-info') {
+    await checkPassportInfoFromProof();
   } else {
     console.log('Usage: npm start [command]');
-    console.log('\nCommands:');
+    console.log('\nSetup & Registration:');
     console.log('  setup                       - Initialize ICAO master tree root on blockchain');
-    console.log(`  register-certificate-rsapss - Register RSA-PSS certificate with merkle proof. If you want to register more than one certificate, modify data/rsspss/masterlist.pem accordingly 
-      and rerun setup with new ICAO root.`);
-    console.log(
-      '  register-passport           - Register passport using Noir ZK proof. Only for a specific circuit',
-    );
-    console.log(
-      '  generate-passport           - Generate biometric passport data. Only for a specific circuit',
-    );
+    console.log(`  register-certificate-rsapss - Register RSA-PSS certificate with merkle proof`);
+    console.log('  register-passport           - Register passport using Noir ZK proof');
+    console.log('  generate-passport           - Generate biometric passport data');
     console.log('  generate-register-proof     - Generate ZK proof for passport registration');
+    console.log('  update-aa-sig               - Update Active Authentication signature');
     console.log(
-      '  update-aa-sig - Update Active Authentication signature for last generated passport',
+      '                                Use --random-challenge for random 8-byte challenge',
     );
+    console.log('  check-passport-info         - Show passport info from registration proof');
+
+    console.log('\nSession Management:');
+    console.log('  revoke-passport             - Revoke ALL sessions for passport');
+    console.log('  revoke-other-sessions       - Revoke all sessions EXCEPT current one');
+    console.log('  revoke-session              - Revoke a single session');
+
+    console.log('\nKYC Management:');
+    console.log('  revoke-kyc <userAddress> [passportHash]');
     console.log(
-      '                                       Use --random-challenge to generate signature with random 8-byte challenge',
+      '                              - Revoke KYC for user. If passportHash not provided,',
     );
-    console.log(
-      '  revoke-passport             - Revoke passport identity using the latest passport data and proof',
-    );
-    console.log(
-      '  reissue-passport            - Reissue identity with new identityKey (BJJ key pair) for same passport',
-    );
-    console.log(
-      '  generate-query-proof <userAddress> - Generate query proof (Circom/Groth16) using contract parameters',
-    );
-    console.log(
-      '  generate-query-proof-noir <userAddress> - Generate query proof (Noir/UltraPlonk) using contract parameters',
-    );
-    console.log(
-      '  execute-query-proof [userAddress] - Execute Circom query proof for KYC verification',
-    );
-    console.log(
-      '  execute-query-proof-noir [userAddress] - Execute Noir query proof for KYC verification',
-    );
-    console.log(
-      '  check-kyc-status [address]  - Check KYC status for an address (defaults to wallet address)',
-    );
+    console.log('                                revokes all KYC for the user');
+    console.log('  revoke-self-kyc [passportHash]');
+    console.log('                              - Revoke own KYC. If passportHash not provided,');
+    console.log('                                revokes all your KYC');
+    console.log('  check-kyc-status [address]  - Check KYC status (defaults to wallet address)');
+
+    console.log('\nQuery Proofs:');
+    console.log('  generate-query-proof <userAddress>');
+    console.log('                              - Generate query proof (Circom/Groth16)');
+    console.log('  generate-query-proof-noir <userAddress>');
+    console.log('                              - Generate query proof (Noir/UltraPlonk)');
+    console.log('  execute-query-proof [userAddress]');
+    console.log('                              - Execute Circom query proof for KYC verification');
+    console.log('  execute-query-proof-noir [userAddress]');
+    console.log('                              - Execute Noir query proof for KYC verification');
+
     process.exit(0);
   }
 }

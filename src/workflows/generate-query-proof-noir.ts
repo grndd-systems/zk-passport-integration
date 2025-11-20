@@ -9,6 +9,7 @@ import {
   loadPkIdentityHash,
   encodePassportDate,
   calculateMinExpirationDate,
+  loadRegistrationProofOutputs,
 } from '../crypto/query-circuit-input';
 import { readSkIdentity } from '../utils/bjj-key';
 import { getProviderAndWallet, getQueryProofExecutorContract } from '../blockchain/eth';
@@ -18,7 +19,6 @@ const circuit = circuitData as unknown as CompiledCircuit;
 
 export interface GenerateNoirQueryProofParams {
   userAddress: string;
-  identityCreationTimestamp?: number;
   minExpirationDate?: number;
 }
 
@@ -40,7 +40,7 @@ export async function generateNoirQueryProofFromContract(params: GenerateNoirQue
   const skIdentity = readSkIdentity();
 
   // User parameters
-  const { userAddress, identityCreationTimestamp = 0 } = params;
+  const { userAddress } = params;
 
   // Get blockchain state
   const { provider, wallet } = getProviderAndWallet();
@@ -60,22 +60,20 @@ export async function generateNoirQueryProofFromContract(params: GenerateNoirQue
   console.log('Current Date (encoded):', currentDateEncoded);
   console.log('Current Date (decimal):', currentDateDecimal.toString());
 
-  // Get passport hash
+  // Get passport hash and session key
   const pkPassportHash = loadPkPassportHash();
   const passportHash = ethers.toBeHex(pkPassportHash, 32);
+  const { identityKey } = loadRegistrationProofOutputs();
+  const sessionKey = ethers.toBeHex(identityKey, 32);
 
   console.log('\nPassport hash:', passportHash);
+  console.log('Session key:', sessionKey);
   console.log('User address:', userAddress);
-  console.log('Identity Creation Timestamp:', identityCreationTimestamp);
   console.log('Min Expiration Date:', minExpirationDate);
 
-  // Prepare userPayload for getPublicSignals call
-  // Format: (address user, uint256 nullifier, bytes32 passportHash, uint256 identityCreationTimestamp, uint256 minExpirationDate)
-  const nullifierPlaceholder = 0;
-
   const userPayload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'uint256', 'bytes32', 'uint256', 'uint256'],
-    [userAddress, nullifierPlaceholder, passportHash, identityCreationTimestamp, minExpirationDate],
+    ['address', 'bytes32', 'bytes32', 'uint256'],
+    [userAddress, sessionKey, passportHash, minExpirationDate],
   );
 
   console.log('\n=== Calling contract.getPublicSignals ===');

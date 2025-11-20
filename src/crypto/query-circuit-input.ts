@@ -255,7 +255,27 @@ export function decodePassportDate(hexDate: string): Date {
   return new Date(year, month, day);
 }
 
-const blacklistCountries = ["RUS", "USA", "CAN", "BLR", "CHN", "HKG", "MAC", "TWN", "PRK", "IRN", "CUB", "COG", "COD", "LBY", "SOM", "SSD", "SDN", "SYR", "YEM"];
+const blacklistCountries = [
+  'RUS',
+  'USA',
+  'CAN',
+  'BLR',
+  'CHN',
+  'HKG',
+  'MAC',
+  'TWN',
+  'PRK',
+  'IRN',
+  'CUB',
+  'COG',
+  'COD',
+  'LBY',
+  'SOM',
+  'SSD',
+  'SDN',
+  'SYR',
+  'YEM',
+];
 /**
  * Country codes in order as they appear in the circuit
  * This must match the COUNTRY_ARR in citizenshipCheck.circom
@@ -513,7 +533,7 @@ export function calculateCitizenshipMask(blockedCountries: string[]): bigint {
 
   for (let i = 0; i < COUNTRY_ORDER.length; i++) {
     if (blockedCountries.includes(COUNTRY_ORDER[i])) {
-        mask |= (1n << BigInt(i));
+      mask |= 1n << BigInt(i);
     }
   }
 

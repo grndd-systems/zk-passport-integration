@@ -35,6 +35,17 @@ export function loadAbi(path: string) {
   return JSON.parse(fs.readFileSync(path).toString()).abi;
 }
 
+export function getCertificateSMTContract(wallet: ethers.Wallet) {
+  if (!CONFIG.CERTIFICATES_SMT_ABI_PATH) {
+    throw new Error('CERTIFICATES_SMT_ABI_PATH not set');
+  }
+  const abi = loadAbi(CONFIG.CERTIFICATES_SMT_ABI_PATH);
+  if (!CONFIG.CERTIFICATES_SMT_ADDRESS) {
+    throw new Error('CERTIFICATES_SMT_ADDRESS not set');
+  }
+  return new ethers.Contract(CONFIG.CERTIFICATES_SMT_ADDRESS, abi, wallet);
+}
+
 export function getStateKeeperContract(wallet: ethers.Wallet) {
   if (!CONFIG.STATEKEEPER_ABI_PATH) {
     throw new Error('STATEKEEPER_ABI_PATH not set');

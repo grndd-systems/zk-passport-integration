@@ -152,13 +152,8 @@ export async function executeNoirQueryProofWorkflow(params: ExecuteNoirQueryProo
   // Step 7: Prepare userPayload (ABI-encoded)
   // Format: (address user, bytes32 sessionKey, bytes32 passportHash, uint256 minExpirationDate)
   const userPayload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address',  'bytes32', 'bytes32', 'uint256'],
-    [
-      userAddress,
-      sessionKey,
-      passportHash,
-      minExpirationDate,
-    ],
+    ['address', 'bytes32', 'bytes32', 'uint256'],
+    [userAddress, sessionKey, passportHash, minExpirationDate],
   );
 
   console.log('\n=== Executing Noir Query Proof ===');

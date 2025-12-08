@@ -16,6 +16,7 @@ import { generateQueryProofFromContract } from './workflows/generate-query-proof
 import { generateNoirQueryProofFromContract } from './workflows/generate-query-proof-noir';
 import { executeNoirQueryProofWorkflow } from './workflows/execute-query-proof-noir';
 import { checkPassportInfoFromProof } from './workflows/check-passport-info';
+import { registerAndVerifyKYCWorkflow } from './workflows/register-and-verify-kyc';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -156,6 +157,13 @@ async function main() {
     await executeNoirQueryProofWorkflow({
       userAddress,
     });
+  } else if (command === 'register-and-verify-kyc') {
+    // Get optional userAddress from command line argument
+    const userAddress = process.argv[3]; // Optional
+
+    await registerAndVerifyKYCWorkflow({
+      userAddress,
+    });
   } else if (command === 'check-kyc-status') {
     const address = process.argv[3]; // Optional
     await checkKYCStatus(address);
@@ -200,6 +208,10 @@ async function main() {
     console.log('                              - Execute Circom query proof for KYC verification');
     console.log('  execute-query-proof-noir [userAddress]');
     console.log('                              - Execute Noir query proof for KYC verification');
+    console.log('  register-and-verify-kyc [userAddress]');
+    console.log(
+      '                              - Register passport and verify KYC in one transaction',
+    );
 
     process.exit(0);
   }

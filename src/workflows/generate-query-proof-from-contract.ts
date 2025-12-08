@@ -66,15 +66,9 @@ export async function generateQueryProofFromContract(params: GenerateQueryProofF
   console.log('User address:', userAddress);
   console.log('Min Expiration Date:', minExpirationDate);
 
-
   const userPayload = ethers.AbiCoder.defaultAbiCoder().encode(
     ['address', 'bytes32', 'bytes32', 'uint256'],
-    [
-      userAddress,
-      sessionKey,
-      passportHash,
-      minExpirationDate,
-    ],
+    [userAddress, sessionKey, passportHash, minExpirationDate],
   );
 
   console.log('\n=== Calling contract.getPublicSignals ===');

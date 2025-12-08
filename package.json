@@ -20,7 +20,9 @@
     "generate-query-proof-noir": "node dist/index.js generate-query-proof-noir",
     "execute-query-proof": "node dist/index.js execute-query-proof",
     "execute-query-proof-noir": "node dist/index.js execute-query-proof-noir",
-    "check-kyc-status": "node dist/index.js check-kyc-status"
+    "register-and-verify-kyc": "node dist/index.js register-and-verify-kyc",
+    "check-kyc-status": "node dist/index.js check-kyc-status",
+    "generate-all-verifiers": "node dist/workflows/verifier-generation/generate-all-verifiers-batch.js"
   },
   "dependencies": {
     "@aztec/bb.js": "^0.66.0",
@@ -30,7 +32,7 @@
     "asn1-ts": "^11.0.1",
     "axios": "^1.4.0",
     "dotenv": "^16.0.3",
-    "ethers": "^6.9.0",
+    "ethers": "^6.14.3",
     "keccak": "^3.0.2",
     "node-forge": "^1.3.1",
     "passport-zk-circuits-noir-js": "^1.0.0",
